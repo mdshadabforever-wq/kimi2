@@ -278,9 +278,35 @@ class Orchestrator:
             # REJECTed symbols are vetoed and cannot generate alerts
             return False
 
-        # Calculate historical win rate
-        win_rate = 58.0
-        win_rate_count = 12
+        # Calculate historical win rate dynamically from database signals over the last 300 days
+        win_rate = 60.0
+        win_rate_count = 0
+        wins_300d = 0
+        failures_300d = 0
+        try:
+            cutoff_date = timestamp - datetime.timedelta(days=300)
+            res_total = database.execute_query(
+                "SELECT COUNT(*) FROM signals WHERE symbol = %s AND direction = %s AND timestamp >= %s AND status IN ('HIT_T1', 'HIT_T2', 'HIT_SL');",
+                (symbol, smc_setup["direction"], cutoff_date),
+                fetch=True
+            )
+            total_setups = res_total[0][0] if res_total else 0
+            if total_setups > 0:
+                res_wins = database.execute_query(
+                    "SELECT COUNT(*) FROM signals WHERE symbol = %s AND direction = %s AND timestamp >= %s AND status IN ('HIT_T1', 'HIT_T2');",
+                    (symbol, smc_setup["direction"], cutoff_date),
+                    fetch=True
+                )
+                wins_300d = res_wins[0][0] if res_wins else 0
+                failures_300d = total_setups - wins_300d
+                win_rate = (float(wins_300d) / float(total_setups)) * 100.0
+                win_rate_count = total_setups
+                print(f"[ORCHESTRATOR] 300d Historical analysis for {symbol} ({smc_setup['direction']}): {total_setups} setups, {wins_300d} Wins, {failures_300d} Losses. Win Rate: {win_rate:.1f}%")
+            else:
+                win_rate = 60.0  # default fallback
+                win_rate_count = 0
+        except Exception as e_wr:
+            print(f"[ORCHESTRATOR] Failed to calculate dynamic historical win rate: {e_wr}")
         
         # Calculate confidence
         confidence = ARCConfidenceCalculator.calculate(
@@ -378,6 +404,156 @@ class Orchestrator:
         if not risk_res["is_accepted"]:
             print(f"[ORCHESTRATOR] Signal {signal_id} for {symbol} rejected by risk gates: {risk_res['status_code']}")
             return False
+
+        # Run Live AI Checks (Prompt 5 & Prompt 6)
+        try:
+            # Query current index and market indicators
+            nifty_price = 23000.0
+            nifty_change = 0.0
+            ad_ratio = 1.0
+            try:
+                res_regime = database.execute_query(
+                    "SELECT regime, nifty_price, ad_ratio FROM regime_history ORDER BY timestamp DESC LIMIT 1;",
+                    fetch=True
+                )
+                if res_regime:
+                    if res_regime[0][1] is not None:
+                        nifty_price = float(res_regime[0][1])
+                    if res_regime[0][2] is not None:
+                        ad_ratio = float(res_regime[0][2])
+            except Exception as e_db:
+                print(f"[ORCHESTRATOR] Live AI Check: Failed to query regime history: {e_db}")
+
+            # Get today's risk state for the live check
+            from risk_gates.recovery_manager import RiskRecoveryManager
+            risk_state = RiskRecoveryManager.recover_risk_state(timestamp.date())
+
+            # Query active alerts count
+            total_active_alerts = 0
+            sector_alerts_last_30m = 0
+            try:
+                res_active = database.execute_query(
+                    "SELECT COUNT(*) FROM active_alerts WHERE expires_at > %s;",
+                    (timestamp,),
+                    fetch=True
+                )
+                if res_active:
+                    total_active_alerts = res_active[0][0]
+
+                sector = SECTOR_MAP.get(symbol.upper(), "METAL")
+                res_sector = database.execute_query(
+                    "SELECT COUNT(*) FROM active_alerts WHERE sector = %s AND triggered_at >= %s;",
+                    (sector, timestamp - datetime.timedelta(minutes=30)),
+                    fetch=True
+                )
+                if res_sector:
+                    sector_alerts_last_30m = res_sector[0][0]
+            except Exception as e_active:
+                print(f"[ORCHESTRATOR] Live AI Check: Failed to query active alerts: {e_active}")
+
+            # 1. Gemini Live Signal Analyzer (Prompt 5)
+            gemini = ServiceRegistry.get("gemini")
+            geie_live = gemini.analyze_live_signal(
+                signal_data={
+                    "symbol": symbol,
+                    "direction": smc_setup["direction"],
+                    "score": float(score_res["final_composite_score"]),
+                    "time": timestamp.strftime("%I:%M %p IST")
+                },
+                tech_data={
+                    "regime": regime_name,
+                    "sector_rank": bm_context.get("sector_rank", 3),
+                    "relative_strength": bm_context.get("rs_percentile", 85),
+                    "rvol": bm_context.get("volume_x", 2.1),
+                    "vix": bm_context.get("vix", 14.5),
+                    "smc_5m": "5m BULLISH OB" if smc_setup["direction"] == "LONG" else "5m BEARISH OB",
+                    "smc_15m": "15m BULLISH FVG" if smc_setup["direction"] == "LONG" else "15m BEARISH FVG",
+                    "options_buildup": f"PUT writing heavy at strike {int(smc_setup['entry_low'])}" if smc_setup["direction"] == "LONG" else f"CALL writing heavy at strike {int(smc_setup['entry_high'])}",
+                    "win_rate": win_rate,
+                    "setups_count": win_rate_count
+                },
+                current_market={
+                    "nifty_price": nifty_price,
+                    "nifty_change": nifty_change,
+                    "ad_ratio": ad_ratio,
+                    "breadth": f"{int(50 * ad_ratio / (ad_ratio + 1))} stocks advancing"
+                },
+                morning_geie={
+                    "direction": geie_direction,
+                    "reasons": [geie_reason],
+                    "confidence": "HIGH"
+                },
+                breaking_news="NONE"
+            )
+
+            # 2. Claude Live Signal Reviewer (Prompt 6)
+            claude = ServiceRegistry.get("claude")
+            arc_live = claude.review_live_signal(
+                signal_data={
+                    "symbol": symbol,
+                    "direction": smc_setup["direction"],
+                    "score": float(score_res["final_composite_score"]),
+                    "time": timestamp.strftime("%H:%M"),
+                    "valid_until": valid_until.strftime("%H:%M"),
+                    "valid_minutes": validity_minutes
+                },
+                tech_summary={
+                    "regime": regime_name,
+                    "rs": f"{bm_context.get('rs_percentile', 85)}th percentile",
+                    "rvol": f"{bm_context.get('volume_x', 2.1)}x",
+                    "smc": f"5m OB + 15m FVG confirmation" if smc_setup["direction"] == "LONG" else "5m BEARISH OB + 15m FVG confirmation",
+                    "options": f"Heavy PUT writing" if smc_setup["direction"] == "LONG" else "Heavy CALL writing"
+                },
+                intelligence_summary={
+                    "geie_direction": geie_direction,
+                    "geie_confidence": "HIGH",
+                    "geie_live_check": geie_live.get("recommendation", "PROCEED"),
+                    "win_rate": win_rate,
+                    "setups_count": win_rate_count,
+                    "premarket_arc": arc_dec
+                },
+                risk_summary={
+                    "daily_risk_used": float(risk_state.get("daily_risk_used", 0.0)),
+                    "consecutive_losses": int(risk_state.get("consecutive_losses", 0)),
+                    "active_alerts": total_active_alerts,
+                    "sector_alerts": sector_alerts_last_30m
+                },
+                market_now={
+                    "nifty": f"{nifty_price} ({nifty_change:+.2f}%)" if nifty_change != 0 else f"{nifty_price} (0.00%)",
+                    "vix": bm_context.get("vix", 14.5),
+                    "breadth": int(50 * ad_ratio / (ad_ratio + 1))
+                }
+            )
+
+            # Save the live checks to files
+            import os
+            import json
+            os.makedirs("daily_intelligence", exist_ok=True)
+            ts_str = timestamp.strftime("%Y%m%d_%H%M%S")
+            with open(f"daily_intelligence/geie_live_{ts_str}_{symbol}.json", "w", encoding="utf-8") as f:
+                f.write(json.dumps(geie_live, indent=2))
+            with open(f"daily_intelligence/arc_live_{ts_str}_{symbol}.json", "w", encoding="utf-8") as f:
+                f.write(json.dumps(arc_live, indent=2))
+
+            # Apply veto decisions
+            if geie_live.get("recommendation") == "BLOCK" or arc_live.get("decision") == "REJECT":
+                print(f"[ORCHESTRATOR] Signal {signal_id} for {symbol} blocked by Live AI Review: Gemini={geie_live.get('recommendation')}, Claude={arc_live.get('decision')}")
+                log_audit(
+                    component="Orchestrator",
+                    action="LIVE_AI_VETO",
+                    result="VETOED",
+                    reason=f"Blocked by Live AI Review: Gemini={geie_live.get('recommendation')}, Claude={arc_live.get('decision')}",
+                    metadata={
+                        "signal_id": signal_id,
+                        "symbol": symbol,
+                        "gemini_live": geie_live,
+                        "claude_live": arc_live
+                    }
+                )
+                return False
+
+        except Exception as e_live:
+            print(f"[ORCHESTRATOR] Live AI Check failed: {e_live}. Proceeding with signal.")
 
         # Auto create paper trade record on signal approval
         try:

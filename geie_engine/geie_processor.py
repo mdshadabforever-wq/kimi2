@@ -46,16 +46,9 @@ class GEIEProcessor:
             perplexity = ServiceRegistry.get("perplexity")
             global_news = perplexity.fetch_global_news()
             india_news = perplexity.fetch_india_news()
-            news_summary = f"{global_news} | {india_news}"
-            
-            # 2. Get institutional trend from database (or NSE mock)
-            # Default fallback if database tables empty
-            fii_trend = "MIXED"
-            options_concentration = "23400 Support / 23700 Resistance"
-            
-            # 3. Analyze news impact via Gemini
+            # 2. Analyze news impact via Gemini
             gemini = ServiceRegistry.get("gemini")
-            payload = gemini.analyze_news_impact(news_summary, fii_trend, options_concentration)
+            payload = gemini.analyze_news_impact(global_news, india_news)
             
             # 4. Enforce mandatory keys and fields
             payload["event_id"] = f"GEIE-{timestamp.strftime('%Y-%m-%d')}-001"

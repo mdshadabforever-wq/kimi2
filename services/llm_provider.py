@@ -27,7 +27,8 @@ class LLMProvider:
         if api_key == "mock_api_key" or "mock" in api_key.lower():
             return LLMProvider._mock_response(prompt, "gemini", system_context)
             
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
         
         combined_prompt = f"{system_context}\n\nUser Question: {prompt}" if system_context else prompt
         
@@ -67,7 +68,7 @@ class LLMProvider:
         url = "https://api.anthropic.com/v1/messages"
         
         payload = {
-            "model": "claude-3-5-sonnet-20241022",
+            "model": os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"),
             "max_tokens": 1024,
             "messages": [
                 {"role": "user", "content": prompt}
