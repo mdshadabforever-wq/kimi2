@@ -1,0 +1,156 @@
+--- MATCH AT LINE 124: STEP 2 — MULTI TIMEFRAME ENGINE ---
+109: 08:15 AM	FII/DII data fetch (NSE) — Store in database
+110: 08:20 AM	Watchlist generation + ARC batch review (Claude) + Send pre-market brief Telegram
+111: 09:15 AM	Market opens. No alerts.
+112: 09:25 AM	Live scanning starts — Every 60 seconds, all 50 NIFTY stocks
+113: 03:14 PM	Queue lock
+114: 03:15 PM	Stop all alerts
+115: 03:30 PM	Freeze session and reset counters
+116: 04:00 PM	ARC post-market review
+117: 04:30 PM	Generate and send EOD report
+118: 5. LIVE SCAN — 16 STEPS EVERY 60 SECONDS
+119: Run for all 50 stocks simultaneously:
+120: STEP 1 — GET LIVE DATA
+121: Source: Upstox WebSocket V3
+122: Get: Price, OHLC, Volume, VIX
+123: Latency must be under 100ms
+124: STEP 2 — MULTI TIMEFRAME ENGINE
+125: Calculate trends on: Daily, 1 Hour, 15 Minute, 5 Minute
+126: Minimum 3 of 4 timeframes must align in the SAME DIRECTION (all bullish or all bearish)
+127: Output: Alignment score 0-100
+128: STEP 3 — SMC ENGINE
+129: Detect on both 5m and 15m charts:
+130: BOS: Close above previous swing high OR below previous swing low. Use 5 bar lookback.
+131: CHOCH: Change of market structure
+132: Order Block: Last opposite candle before impulse move
+133: FVG: Fair Value Gap between candles
+134: MANDATORY CROSS TIMEFRAME RULE:
+135: Need minimum 2 confirmations.
+136: At least 1 must be from 15m chart
+137: At least 1 must be from 5m chart
+138: PASS examples:
+139: 5m BOS + 15m Order Block = PASS
+140: 5m CHOCH + 15m FVG = PASS
+141: FAIL examples:
+142: 5m BOS + 5m FVG = FAIL
+143: 15m BOS + 15m OB = FAIL
+144: Signal Direction Mapping:
+145: Bullish BOS/CHOCH + bullish OB/FVG = LONG signal
+146: Bearish BOS/CHOCH + bearish OB/FVG = SHORT signal
+147: Mixed signals = NO DIRECTION (reject)
+148: STEP 4 — OPTIONS ENGINE
+149: Scan every 5 minutes (synchronized to market clock: 09:25:00, 09:30:00, 09:35:00, etc.)
+150: Also scan immediately when SMC triggers (event-driven), using most recent 5-minute options data
+151: Calculate:
+152: PCR (Put Call Ratio)
+153: OI Change per strike
+154: Long Buildup detection
+155: Short Buildup detection
+156: Long Unwinding detection
+157: Short Covering detection
+158: PCR Interpretation:
+============================================================
+--- MATCH AT LINE 1089: Phase 3 — Multi Timeframe Engine (Week 4) ---
+1074: Set up environment variables
+1075: Build health monitoring system
+1076: Build Ghost Mode system
+1077: Build audit logging system
+1078: Test all connections
+1079: Do not proceed until all tests pass
+1080: Phase 2 — Market Data (Week 3)
+1081: Integrate Upstox API V3
+1082: Build WebSocket connection with auto-reconnect
+1083: Build REST fallback for WebSocket failure
+1084: Build OHLC candle constructor from tick data
+1085: Build 1m, 5m, 15m, 30m, Daily candle builder
+1086: Build instrument master loader for NIFTY 50
+1087: Test live data flow for all 50 stocks
+1088: Verify latency under 100ms
+1089: Phase 3 — Multi Timeframe Engine (Week 4)
+1090: Build trend calculator for each timeframe
+1091: Build alignment scorer across timeframes
+1092: Minimum 3 of 4 alignment rule (same direction)
+1093: Phase 4 — SMC Engine (Week 5)
+1094: Build BOS detector for 5m and 15m
+1095: Build CHOCH detector for 5m and 15m
+1096: Build Order Block detector for 5m and 15m
+1097: Build FVG detector for 5m and 15m
+1098: Build cross-timeframe validator
+1099: Enforce 5m + 15m mandatory rule
+1100: Build direction mapping logic
+1101: Phase 5 — Options Engine (Week 6)
+1102: Build option chain fetcher from Upstox
+1103: Build PCR calculator
+1104: Build OI change tracker
+1105: Build buildup classifier
+1106: Build 5-minute scheduler (synchronized to market clock)
+1107: Build event-driven trigger on SMC
+1108: Phase 6 — Scoring Engine (Week 7)
+1109: Build all 7 individual engines (Regime, RS, RVOL, Breadth, Options, Sector, SMC Quality)
+1110: Build composite score calculator
+1111: Build regime detector
+1112: Build sector mapper
+1113: Enforce score threshold strictly > 85
+1114: Phase 7 — Risk Gates (Week 8)
+1115: Build all 8 gates in order
+1116: Build earnings calendar loader (24-hour Asia/Kolkata window)
+1117: Build event calendar loader (RBI, Fed, CPI, GDP, Budget, MPC)
+1118: Build VIX adjustment logic
+1119: Build ATR-based pause logic
+1120: Ensure gates run before AI layers
+1121: Phase 8 — Backtesting Engine (Week 9-10)
+1122: Build historical data downloader
+1123: Build signal replay engine
+============================================================
+--- MATCH AT LINE 1222: 12	Multi Timeframe	Must align in SAME DIRECTION ---
+1207: #	Issue	v4.4 Problem	v4.5/v4.6 Fix
+1208: 1	Score Threshold / Risk Grade	Grade B covered "85-86" but 85 rejected	Grade B = Score 86 only. LOW starts at 86.
+1209: 2	Undefined "Signal Quality"	10% weight but never defined	Renamed to "SMC Signal Quality" with explicit scoring
+1210: 3	SMC Direction Mapping	Structure detected but no Long/Short mapping	Added explicit direction mapping rules
+1211: 4	Gate 8 Volatility Confusion	Mixed VIX/ATR under same header	Split: VIX = position reduction, ATR = pause
+1212: 5	Position Size Division by Zero	Could divide by zero	Guard: min stop = 0.1% of entry
+1213: Moderate Fixes (from v4.5)
+1214: Table
+1215: #	Issue	Fix
+1216: 6	Options Engine Timing	Specified: 5-min market-clock sync + event-driven priority
+1217: 7	GEIE Score Field	Renamed to "magnitude" (human ref only)
+1218: 8	ARC Veto Power	Explicit: REJECT = remove from watchlist
+1219: 9	Cooldown Exception	Requires BOTH +10 score AND new regime
+1220: 10	RVOL Score	Linear interpolation between thresholds
+1221: 11	NIFTY Return	Explicit calculation over same weighted periods
+1222: 12	Multi Timeframe	Must align in SAME DIRECTION
+1223: v4.6 Big Money Additions
+1224: Table
+1225: #	Addition	Description
+1226: 13	16-Step Live Scan	Added Step 15: Big Money Confluence Check
+1227: 14	4 New Database Tables	fii_dii_tracker, bulk_deal_tracker, options_intelligence, order_block_memory
+1228: 15	FII/DII Tracker	Daily NSE data, 5-day trend, combined bias
+1229: 16	Bulk Deal Monitor	15-min scan, ₹25Cr+ threshold, intraday flag
+1230: 17	Options Big Money	Unusual activity (3x OI), max pain, OI concentration zones
+1231: 18	Order Block Memory	Permanent OB database, test tracking, strength scoring
+1232: 19	RS Divergence	Hidden accumulation/distribution detection
+1233: 20	Big Money Confluence	5-signal score (0-100), Risk Grade upgrade logic
+1234: 21	Updated Telegram Format	Added 💰 Big Money Signals section
+1235: 22	Updated Risk Grades	Big Money ≥80 upgrades: B→B+, B+→A, A→A+
+1236: 23	Updated GEIE Prompt	Added FII trend, block deals, OI levels
+1237: 24	Updated ARC Prompt	Added Big Money context for decisions
+1238: 25	New Phase 13	Big Money Module (Week 15-16)
+1239: 26	25 Non-Negotiable Rules	Added Rules 21-25 for Big Money
+1240: VERSION: IIIS v4.6 PRODUCTION
+1241: STATUS: FROZEN — READY FOR PHASE 1
+1242: NEXT STEP: BEGIN PHASE 1 (Infrastructure)
+1243: INSTRUCTION TO AI AGENT
+1244: You have read the complete corrected specification.
+1245: Now tell me:
+1246: Confirm you understood everything.
+1247: Ask me: Ready to start Phase 1?
+1248: Wait for my go ahead.
+1249: Build one phase at a time.
+1250: Test before moving to next phase.
+1251: Ask for my approval after each phase.
+1252: Never skip any step.
+1253: Never add features not in this spec.
+1254: Never remove features from this spec.
+1255: Follow non-negotiable rules always.
+1256: </USER_REQUEST>
+============================================================

@@ -1,0 +1,106 @@
+<USER_REQUEST>
+IIIS v4.6 — Institutional Intraday Intelligence System with Big Money Detection
+Version: v4.6 (Corrected from v4.4/v4.5, Big Money Module Added)
+Status: FROZEN — Ready for Phase 1 Implementation
+Last Updated: 2026-06-15
+Previous Versions: v4.4 (Original), v4.5 (Corrected), v4.6 (Big Money + Final)
+plain
+You are building IIIS v4.6 - Institutional 
+Intraday Intelligence System with Big Money Detection.
+
+Read this complete specification carefully.
+Then confirm you understand it.
+Then ask me which phase to start.
+Do NOT write any code until I say start.
+TABLE OF CONTENTS
+What is IIIS
+Technology Stack
+Environment Variables
+Daily Timeline
+Live Scan — 16 Steps Every 60 Seconds
+Market Regime Engine
+Composite Score & Weightings
+Risk Gates
+Big Money Detection Module
+Big Money Confluence Score
+ARC Engine — Claude API
+GEIE Engine — Gemini API
+GEIE Master Map — All 50 Stocks
+Telegram Alert Format
+Risk Grade Definitions
+Alert Validity & Cooldown Rules
+Risk Management
+Database Schema — 16 Tables
+Ghost Mode
+Monitoring
+Session End Protocol
+Development Phases in Order
+Non-Negotiable Rules
+Errata (v4.4 → v4.6 Changes)
+1. WHAT IS IIIS
+IIIS is a trading intelligence alert system for NIFTY 50 stocks.
+The system:
+Monitors all 50 NIFTY stocks every minute
+Finds high quality trade opportunities
+Detects institutional (Big Money) activity
+Sends alerts via Telegram
+NEVER places trades automatically
+Human always executes trades manually
+Simple analogy:
+IIIS is a smart munshi who watches 50 stocks all day, tracks where institutions are putting money, and calls you when a good opportunity appears. You decide to trade or not.
+2. TECHNOLOGY STACK
+Table
+Component	Technology
+Language	Python 3.11+
+Database	PostgreSQL + TimescaleDB
+Cache	Redis
+Container	Docker
+Primary VPS	DigitalOcean Mumbai — 8GB RAM, 4CPU, 160GB SSD
+Backup VPS	AWS Lightsail Mumbai — 4GB RAM, 2CPU, 80GB SSD
+Market Data	Upstox API V3
+News	Perplexity API
+Event Analysis	Gemini API (GEIE)
+Re
+<truncated 40809 bytes>
+alculation over same weighted periods
+12	Multi Timeframe	Must align in SAME DIRECTION
+v4.6 Big Money Additions
+Table
+#	Addition	Description
+13	16-Step Live Scan	Added Step 15: Big Money Confluence Check
+14	4 New Database Tables	fii_dii_tracker, bulk_deal_tracker, options_intelligence, order_block_memory
+15	FII/DII Tracker	Daily NSE data, 5-day trend, combined bias
+16	Bulk Deal Monitor	15-min scan, ₹25Cr+ threshold, intraday flag
+17	Options Big Money	Unusual activity (3x OI), max pain, OI concentration zones
+18	Order Block Memory	Permanent OB database, test tracking, strength scoring
+19	RS Divergence	Hidden accumulation/distribution detection
+20	Big Money Confluence	5-signal score (0-100), Risk Grade upgrade logic
+21	Updated Telegram Format	Added 💰 Big Money Signals section
+22	Updated Risk Grades	Big Money ≥80 upgrades: B→B+, B+→A, A→A+
+23	Updated GEIE Prompt	Added FII trend, block deals, OI levels
+24	Updated ARC Prompt	Added Big Money context for decisions
+25	New Phase 13	Big Money Module (Week 15-16)
+26	25 Non-Negotiable Rules	Added Rules 21-25 for Big Money
+VERSION: IIIS v4.6 PRODUCTION
+STATUS: FROZEN — READY FOR PHASE 1
+NEXT STEP: BEGIN PHASE 1 (Infrastructure)
+INSTRUCTION TO AI AGENT
+You have read the complete corrected specification.
+Now tell me:
+Confirm you understood everything.
+Ask me: Ready to start Phase 1?
+Wait for my go ahead.
+Build one phase at a time.
+Test before moving to next phase.
+Ask for my approval after each phase.
+Never skip any step.
+Never add features not in this spec.
+Never remove features from this spec.
+Follow non-negotiable rules always.
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-06-15T19:52:37+05:30.
+</ADDITIONAL_METADATA>
+<USER_SETTINGS_CHANGE>
+The user changed setting `Model Selection` from None to Gemini 3.5 Flash (Medium). No need to comment on this change if the user doesn't ask about it. If reporting what model you are, please use a human readable name instead of the exact string.
+</USER_SETTINGS_CHANGE>

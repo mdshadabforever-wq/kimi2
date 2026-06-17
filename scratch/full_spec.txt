@@ -1,0 +1,1263 @@
+<USER_REQUEST>
+IIIS v4.6 — Institutional Intraday Intelligence System with Big Money Detection
+Version: v4.6 (Corrected from v4.4/v4.5, Big Money Module Added)
+Status: FROZEN — Ready for Phase 1 Implementation
+Last Updated: 2026-06-15
+Previous Versions: v4.4 (Original), v4.5 (Corrected), v4.6 (Big Money + Final)
+plain
+You are building IIIS v4.6 - Institutional 
+Intraday Intelligence System with Big Money Detection.
+
+Read this complete specification carefully.
+Then confirm you understand it.
+Then ask me which phase to start.
+Do NOT write any code until I say start.
+TABLE OF CONTENTS
+What is IIIS
+Technology Stack
+Environment Variables
+Daily Timeline
+Live Scan — 16 Steps Every 60 Seconds
+Market Regime Engine
+Composite Score & Weightings
+Risk Gates
+Big Money Detection Module
+Big Money Confluence Score
+ARC Engine — Claude API
+GEIE Engine — Gemini API
+GEIE Master Map — All 50 Stocks
+Telegram Alert Format
+Risk Grade Definitions
+Alert Validity & Cooldown Rules
+Risk Management
+Database Schema — 16 Tables
+Ghost Mode
+Monitoring
+Session End Protocol
+Development Phases in Order
+Non-Negotiable Rules
+Errata (v4.4 → v4.6 Changes)
+1. WHAT IS IIIS
+IIIS is a trading intelligence alert system for NIFTY 50 stocks.
+The system:
+Monitors all 50 NIFTY stocks every minute
+Finds high quality trade opportunities
+Detects institutional (Big Money) activity
+Sends alerts via Telegram
+NEVER places trades automatically
+Human always executes trades manually
+Simple analogy:
+IIIS is a smart munshi who watches 50 stocks all day, tracks where institutions are putting money, and calls you when a good opportunity appears. You decide to trade or not.
+2. TECHNOLOGY STACK
+Table
+Component	Technology
+Language	Python 3.11+
+Database	PostgreSQL + TimescaleDB
+Cache	Redis
+Container	Docker
+Primary VPS	DigitalOcean Mumbai — 8GB RAM, 4CPU, 160GB SSD
+Backup VPS	AWS Lightsail Mumbai — 4GB RAM, 2CPU, 80GB SSD
+Market Data	Upstox API V3
+News	Perplexity API
+Event Analysis	Gemini API (GEIE)
+Research	Claude API (ARC)
+Alerts	Telegram Bot API
+FII/DII Data	NSE Official Website
+Bulk Deals	NSE India Website
+3. ENVIRONMENT VARIABLES
+Create .env file with these:
+env
+# Upstox API
+UPSTOX_API_KEY=your_actual_key_here
+UPSTOX_API_SECRET=your_actual_secret_here
+UPSTOX_REDIRECT_URI=http://localhost:8000/callback
+
+# AI APIs
+PERPLEXITY_API_KEY=your_actual_key_here
+GEMINI_API_KEY=your_actual_key_here
+CLAUDE_API_KEY=your_actual_key_here
+
+# Telegram
+TELEGRAM_BOT_TOKEN=your_actual_token_here
+TELEGRAM_ADMIN_CHAT_ID=your_chat_id_here
+
+# Database
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=iiis
+DB_USER=iiis_user
+DB_PASSWORD=strong_password_here
+
+# Redis
+REDIS_HOST=localhost
+REDIS_PORT=6379
+
+# Risk Settings
+CAPITAL=1000000
+RISK_PCT=0.5
+MAX_DAILY_RISK_PCT=2.0
+HARD_STOP_LOSSES=3
+
+# System
+TIMEZONE=Asia/Kolkata
+4. DAILY TIMELINE
+Table
+Time	Activity
+07:00 AM	Global news scan (Perplexity)
+08:00 AM	India news scan (Perplexity)
+08:05 AM	GEIE run (Gemini) — Cache result in Redis, valid all day
+08:10 AM	Sector ranking calculation
+08:15 AM	FII/DII data fetch (NSE) — Store in database
+08:20 AM	Watchlist generation + ARC batch review (Claude) + Send pre-market brief Telegram
+09:15 AM	Market opens. No alerts.
+09:25 AM	Live scanning starts — Every 60 seconds, all 50 NIFTY stocks
+03:14 PM	Queue lock
+03:15 PM	Stop all alerts
+03:30 PM	Freeze session and reset counters
+04:00 PM	ARC post-market review
+04:30 PM	Generate and send EOD report
+5. LIVE SCAN — 16 STEPS EVERY 60 SECONDS
+Run for all 50 stocks simultaneously:
+STEP 1 — GET LIVE DATA
+Source: Upstox WebSocket V3
+Get: Price, OHLC, Volume, VIX
+Latency must be under 100ms
+STEP 2 — MULTI TIMEFRAME ENGINE
+Calculate trends on: Daily, 1 Hour, 15 Minute, 5 Minute
+Minimum 3 of 4 timeframes must align in the SAME DIRECTION (all bullish or all bearish)
+Output: Alignment score 0-100
+STEP 3 — SMC ENGINE
+Detect on both 5m and 15m charts:
+BOS: Close above previous swing high OR below previous swing low. Use 5 bar lookback.
+CHOCH: Change of market structure
+Order Block: Last opposite candle before impulse move
+FVG: Fair Value Gap between candles
+MANDATORY CROSS TIMEFRAME RULE:
+Need minimum 2 confirmations.
+At least 1 must be from 15m chart
+At least 1 must be from 5m chart
+PASS examples:
+5m BOS + 15m Order Block = PASS
+5m CHOCH + 15m FVG = PASS
+FAIL examples:
+5m BOS + 5m FVG = FAIL
+15m BOS + 15m OB = FAIL
+Signal Direction Mapping:
+Bullish BOS/CHOCH + bullish OB/FVG = LONG signal
+Bearish BOS/CHOCH + bearish OB/FVG = SHORT signal
+Mixed signals = NO DIRECTION (reject)
+STEP 4 — OPTIONS ENGINE
+Scan every 5 minutes (synchronized to market clock: 09:25:00, 09:30:00, 09:35:00, etc.)
+Also scan immediately when SMC triggers (event-driven), using most recent 5-minute options data
+Calculate:
+PCR (Put Call Ratio)
+OI Change per strike
+Long Buildup detection
+Short Buildup detection
+Long Unwinding detection
+Short Covering detection
+PCR Interpretation:
+PCR above 1.3 = Bullish
+PCR below 0.7 = Bearish
+PCR 0.7 to 1.3 = Neutral
+Output: Options score 0-100
+STEP 5 — RELATIVE STRENGTH ENGINE
+Formula: Stock return minus NIFTY 50 return (same weighted timeframes)
+Timeframe weights:
+5m = 10%
+15m = 20%
+30m = 30%
+Daily = 40%
+Output: Percentile rank across NIFTY 50 (0-100)
+NIFTY Return Calculation:
+Calculate NIFTY 50 return over the same weighted periods (5m/15m/30m/Daily)
+Use percentage change from period open to current price
+STEP 6 — RVOL ENGINE
+Formula: Current volume divided by 20-day average volume (same timeframe)
+RVOL scoring (linear interpolation between thresholds):
+RVOL ≥ 3.0 = score 100
+RVOL 2.0 to 3.0 = score 80 to 100 (linear)
+RVOL 1.5 to 2.0 = score 60 to 80 (linear)
+RVOL 1.0 to 1.5 = score 40 to 60 (linear)
+RVOL < 1.0 = score 0 to 40 (linear, capped at 40)
+Output: RVOL score 0-100
+STEP 7 — BREADTH ENGINE
+Calculate from all 50 NIFTY stocks:
+Advance Decline Ratio
+Stocks above VWAP count
+Stocks above 20 EMA count
+New Highs count
+New Lows count
+Output: Breadth score 0-100
+STEP 8 — SECTOR STRENGTH ENGINE
+Use pre-calculated sector ranking from 08:10 AM calculation
+Map each stock to its sector
+Assign sector score
+Output: Sector score 0-100
+STEP 9 — COMPOSITE SCORE
+7 Input Engines & Weightings:
+Table
+Engine	Weight	Description
+Market Regime	25%	From Regime Engine (Step 10)
+Relative Strength	20%	From Step 5
+Volume RVOL	15%	From Step 6
+Market Breadth	10%	From Step 7
+Options Flow	10%	From Step 4
+Sector Strength	10%	From Step 8
+SMC Signal Quality	10%	From Step 3: based on number of SMC confirmations (1=weak, 2=medium, 3+=strong)
+Total	100%	
+SMC Quality Score (0-100):
+1 SMC confirmation = 40
+2 SMC confirmations = 70
+3+ SMC confirmations = 100
+0 SMC confirmations = 0 (rejected at Gate 2 anyway)
+THRESHOLD RULE:
+Score must be STRICTLY GREATER than 85
+Score 85 = REJECT immediately
+Score 86 = proceed to gates
+Score 85.5 = REJECT (must be ≥ 86.0)
+ATR Standard: Period 14, Timeframe 15m
+RVOL Standard: 20-day average
+STEP 10 — RISK GATES
+Run all 8 gates. All must pass. Any single fail = reject immediately. All gates run BEFORE AI layers.
+GATE 1 — LIQUIDITY
+Minimum ADTV ₹50 Crore
+Maximum bid-ask spread 0.20%
+Minimum session RVOL 1.0
+Fail = reject
+GATE 2 — SMC VALIDATION
+Must have cross-timeframe confirmation from Step 3 above
+Fail = reject
+GATE 3 — CORRELATION
+Maximum 2 alerts same sector per 30 min
+Maximum 4 active alerts total
+Fail = reject
+GATE 4 — EARNINGS
+Company results within next 24 trading hours (Asia/Kolkata timezone) = block
+No exceptions
+Fail = reject
+GATE 5 — EVENT RISK
+Block 15 minutes before major event
+Block 15 minutes after major event
+Major events: RBI, Fed, CPI, GDP, Budget, MPC
+Fail = reject
+GATE 6 — CHOPPY FILTER
+All 3 conditions must be true together:
+ADX(14) less than 20
+AND AD Ratio between 0.9 and 1.1
+AND NIFTY inside 0.5 ATR range for 30 min
+If all 3 true: block ALL signals
+GATE 7 — CIRCUIT BREAKER
+NIFTY moves more than 1.5% in 15 min
+Action: Pause 20 minutes → Recalculate regime → Resume if stable
+GATE 8 — VOLATILITY REGIME
+India VIX above 20:
+Reduce position size by 50%
+Alert continues with warning
+NIFTY ATR(14) above 1.5× 30-day average:
+Pause all intraday alerts
+Resume when ATR returns below 1.5× threshold
+STEP 11 — HISTORICAL PATTERN ENGINE
+Search last 90 days stored data
+Find similar setups with:
+Same market regime
+Similar score within ±5 points
+Same direction (Long or Short) — mapped from SMC direction in Step 3
+Same sector
+Output:
+Win Rate percentage
+Profit Factor
+Sample size count
+Average hold time
+Minimum 10 similar setups required
+Less than 10 = add LOW CONFIDENCE tag to alert
+STEP 12 — GEIE VALIDATION
+Use cached GEIE result from 08:05 AM
+NO live API call here
+Check impact direction for this stock
+If NEGATIVE and LONG signal: Add warning note to alert
+If POSITIVE and LONG signal: Add confirmation note to alert
+If NEUTRAL: No additional note
+If GEIE_STATUS = UNAVAILABLE: Continue normally, add "GEIE UNAVAILABLE" note
+STEP 13 — ALGORITHMIC CONFIDENCE FILTER
+Rules based. No AI call. No API cost. Replaces live ARC completely.
+HIGH confidence when:
+Score above 92
+AND GEIE direction POSITIVE
+AND Historical win rate above 60%
+MEDIUM confidence when:
+Score 88 to 92
+AND GEIE direction POSITIVE or NEUTRAL
+AND Historical win rate 50% to 60%
+LOW confidence when:
+Score 86 to 88 (corrected: was 85-88, but 85 is rejected)
+AND GEIE direction NEUTRAL
+AND Historical win rate below 50%
+Add CAUTION flag to alert
+STEP 14 — RISK ENGINE
+Check daily risk used is below 2%
+Check consecutive losses below 3
+Check sector exposure limits
+Calculate position size with VIX adjustment
+Position Size Formula:
+plain
+Size = (Capital × 0.5%) ÷ max((Entry − Stop Loss), Entry × 0.001)
+Guard against division by zero:
+If (Entry − Stop Loss) < 0.1% of Entry price, use minimum stop distance = 0.1% of Entry price
+If still zero or negative, reject signal
+VIX Adjustment:
+VIX below 15: Full size (100%)
+VIX 15 to 20: 75% of size
+VIX above 20: 50% of size
+Maximum position cap: 10% of capital
+STEP 15 — BIG MONEY CONFLUENCE CHECK
+NEW in v4.6
+Check 5 Big Money signals (see Section 10 for details):
+Table
+Signal	Points	Source
+FII Buying Trend (3+ consecutive days)	+20	fii_dii_tracker table
+Bulk Deal Same Direction (last 15 min)	+20	bulk_deal_tracker table
+Unusual Options Activity (3x OI change)	+20	options_intelligence table
+Historical OB Zone Nearby (tested 3+ times)	+20	order_block_memory table
+RS Divergence Detected (>1.5% vs NIFTY)	+20	Calculated live
+Maximum	100	
+Rules:
+Big Money Score is CONTEXT only
+Weight in composite = 0%
+Never blocks signal
+Enhances Risk Grade only (see Section 15)
+STEP 16 — GENERATE ALERT
+If all 15 steps pass:
+Generate alert with Big Money section
+Apply Risk Grade upgrade if Big Money Score ≥ 80
+Send via Telegram
+Log to database
+Update audit trail
+Set valid_until based on regime (see Section 16)
+6. MARKET REGIME ENGINE
+This determines 25% of total composite score.
+Table
+Regime	Regime Score	Max Composite	Alerts Allowed	Notes
+Trend Day	100	100.0	YES	ADX(14) on 15m > 25, NIFTY > EMA 20, AD Ratio > 1.5
+Expiry Day	70	92.5	YES	Weekly or Monthly expiry day
+Reversal Day	50	87.5	YES (HIGH only)	Gap at open > 0.8%, opening direction fails within 30 min, breadth reverses
+Transition Day	30	82.5	NO	Cannot mathematically reach 86
+Range Day	20	80.0	NO	ADX(14) on 15m < 20, NIFTY inside ATR range, AD Ratio 0.8-1.2
+Composite Score Calculation Example (Trend Day):
+Regime contribution: 100 × 25% = 25 points
+If all other engines score 100: 25 + 20 + 15 + 10 + 10 + 10 + 10 = 100
+7. COMPOSITE SCORE & WEIGHTINGS
+Final Formula:
+plain
+Composite = (RegimeScore × 0.25) + (RS_Score × 0.20) + (RVOL_Score × 0.15) + 
+            (Breadth_Score × 0.10) + (Options_Score × 0.10) + (Sector_Score × 0.10) + 
+            (SMC_Quality_Score × 0.10)
+Big Money Score is NOT included in composite.
+8. RISK GATES (Summary)
+Table
+Gate	Name	Fail Action
+1	Liquidity	Reject signal
+2	SMC Validation	Reject signal
+3	Correlation	Reject signal
+4	Earnings	Reject signal
+5	Event Risk	Reject signal
+6	Choppy Filter	Block ALL signals
+7	Circuit Breaker	Pause 20 min
+8	Volatility Regime	Reduce size or Pause
+9. BIG MONEY DETECTION MODULE
+MODULE 1 — FII/DII TRACKER
+Purpose: Track institutional buying and selling to set daily market bias.
+Data Source: NSE website daily data. Perplexity API 8 AM scan.
+What to track:
+Daily FII net activity: Net Buyer or Net Seller (Amount in crores)
+Daily DII net activity: Net Buyer or Net Seller (Amount in crores)
+5 day trend: Count consecutive FII buy/sell days
+Logic:
+FII buyer 3+ consecutive days = BULLISH BIAS for long signals
+FII seller 3+ consecutive days = BEARISH BIAS, suppress long signals
+FII buyer + DII buyer same day = STRONG BULLISH — extra confidence
+FII seller + DII seller same day = STRONG BEARISH — suppress longs
+Database: fii_dii_tracker table
+MODULE 2 — BLOCK AND BULK DEAL TRACKER
+Purpose: Detect large institutional transactions.
+Pre-Market Block Deals (8 AM): Already in Perplexity 8 AM scan. No change.
+Intraday Bulk Deal Monitor:
+URL: https://www.nseindia.com/market-data/bulk-deal
+Scan: Every 15 minutes during live market
+Detect: Any deal above ₹25 crore in NIFTY 50 stocks
+Logic:
+Bulk buy deal in stock X = Add INSTITUTIONAL BUY FLAG
+Bulk sell deal in stock X = Add INSTITUTIONAL SELL FLAG
+Database: bulk_deal_tracker table
+MODULE 3 — OPTIONS BIG MONEY DETECTOR
+1. Unusual Options Activity Detector:
+Strikes where OI change is 3x or more than 20-day average
+Unusual CALL buying = Big money expects price up
+Unusual PUT buying = Big money expects price down
+Unusual PUT writing = Big money defending support
+2. Max Pain Tracker:
+Calculate max pain daily (price where max options expire worthless)
+Show in Telegram alert on expiry day
+3. OI Concentration Zones:
+Highest PUT OI = Strong support level
+Highest CALL OI = Strong resistance level
+Database: options_intelligence table
+MODULE 4 — SMART MONEY ORDER BLOCK DATABASE
+Purpose: Build permanent database of key Order Block zones.
+Store every valid OB detected:
+Symbol, timeframe, type (bullish/bearish)
+High, low, midpoint
+First detected, last tested
+Test count, held count
+Broken status
+Logic:
+Price returns to stored OB and bounces: test_count + 1, held_count + 1
+Price breaks through: broken = TRUE
+Tested 3+ times and held each time = MAJOR INSTITUTIONAL ZONE
+Price near major OB = Extra confidence, boost signal score by 2-3 points
+Database: order_block_memory table
+MODULE 5 — RELATIVE STRENGTH DIVERGENCE
+Purpose: Detect when stock moves significantly different from market.
+Hidden Accumulation:
+NIFTY flat or slightly down (-0.3% to +0.3%)
+Stock holding strong or moving up (>1.5% divergence)
+= Institutions accumulating secretly = BULLISH
+Hidden Distribution:
+NIFTY flat or slightly up (-0.3% to +0.3%)
+Stock falling or underperforming badly (<-1.5% divergence)
+= Institutions distributing quietly = BEARISH
+Threshold: NIFTY move between -0.3% and +0.3%, Stock divergence >1.5%
+10. BIG MONEY CONFLUENCE SCORE
+Combine all Big Money signals into one score:
+Table
+Signal	Points
+FII buying trend (3+ days)	+20
+Bulk deal same direction	+20
+Unusual options activity	+20
+Historical OB zone nearby	+20
+RS divergence detected	+20
+Maximum	100
+Integration Rules:
+Big Money Score is CONTEXT only
+Weight in composite = 0%
+Never blocks signal
+Enhances Risk Grade only
+Risk Grade Upgrade Rules:
+Table
+Base Grade	Big Money Score	Final Grade
+B (86)	80+	B+
+B+ (87-89)	80+	A
+A (90-94)	80+	A+
+A+ (95+)	Any	A+ (no change)
+11. ARC ENGINE — CLAUDE API
+Role: Pre-market and post-market ONLY. Never used in live 60-second scan.
+Weight: 0% — does not affect score.
+Role: Veto power only.
+Pre-Market at 08:20 AM:
+Reviews watchlist as batch
+For each stock returns: APPROVE or CAUTION or REJECT
+REJECT = Stock removed from watchlist, no alerts for that stock today
+CAUTION = Stock stays on watchlist but all alerts tagged with ARC: CAUTION
+APPROVE = Stock on watchlist, normal processing
+Updated Prompt (v4.6):
+Include Big Money context:
+FII Trend: [X days buying or selling]
+Bulk Deals Today: [any or NONE]
+Big Money Score: [XX out of 100]
+OB Zone: [near or not near]
+RS Divergence: [detected or not]
+Post-Market at 04:00 PM:
+Reviews flagged signals
+Input for next day watchlist
+ARC Failure Policy:
+If Claude API times out: Skip ARC review
+Mark stocks as UNREVIEWED
+Publish watchlist anyway
+Human manually checks
+All UNREVIEWED stocks get "ARC: UNREVIEWED" tag on alerts
+12. GEIE ENGINE — GEMINI API
+Model: Gemini Flash
+Runs: Pre-market 08:05 AM only
+Cached: In Redis, valid all day
+Live scan: Uses cache only, no API call
+Purpose: Map global and India news to NIFTY 50 stock level impact.
+Updated Prompt (v4.6):
+Also analyze:
+FII trend for last 5 days
+Any major block deals yesterday
+Options OI concentration levels
+Where are the major support zones
+Output JSON format (mandatory):
+JSON
+{
+  "event_id": "GEIE-YYYY-MM-DD-001",
+  "timestamp": "IST timestamp",
+  "market_sentiment": "RISK_ON",
+  "stock_impacts": {
+    "TATASTEEL": {
+      "direction": "POSITIVE",
+      "magnitude": 2,
+      "reasons": ["China production cuts"],
+      "confidence": "HIGH",
+      "urgency": "INTRADAY"
+    }
+  },
+  "fii_5day_trend": "BUYING or SELLING or MIXED",
+  "institutional_bias": "BULLISH or BEARISH or NEUTRAL",
+  "key_support_from_options": "price level",
+  "key_resistance_from_options": "price level",
+  "top_beneficiaries": ["TATASTEEL", "JSWSTEEL"],
+  "top_losers": ["MARUTI", "TATAMOTORS"],
+  "geie_status": "ACTIVE"
+}
+Note: magnitude field (1-3 scale) is for human reference only. Only direction is used by the system. Weight in composite score = 0%.
+GEIE Failure Policy:
+If Gemini API times out or errors: Mark GEIE_STATUS as UNAVAILABLE
+Log to audit
+System continues normally
+NEVER block any alert
+Use last valid snapshot from Redis
+Snapshot valid for 60 minutes
+After 60 min with no valid snapshot: All stocks default to NEUTRAL
+13. GEIE MASTER MAP — ALL 50 STOCKS
+[Same as v4.5 — no changes to content]
+Metals
+TATASTEEL:
+positive: steel_price_up, china_production_cuts, infra_spending_up, govt_stimulus
+negative: china_dumping, coal_cost_up, domestic_demand_down
+JSWSTEEL:
+positive: steel_price_up, china_production_cuts, infra_spending_up
+negative: china_dumping, coal_cost_up, iron_ore_cost_up
+HINDALCO:
+positive: aluminum_price_up, global_demand_up, auto_demand
+negative: aluminum_price_down, coal_cost_up, china_dumping
+Banking
+HDFCBANK:
+positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+negative: rate_hike, npa_rise, regulatory_tightening
+ICICIBANK:
+positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+negative: rate_hike, npa_rise, regulatory_tightening
+SBIN:
+positive: govt_spending, rate_cut, psu_revival, infra_projects
+negative: rate_hike, npa_rise, privatization_fear
+KOTAKBANK:
+positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+negative: rate_hike, npa_rise
+AXISBANK:
+positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+negative: rate_hike, npa_rise
+INDUSINDBK:
+positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+negative: rate_hike, npa_rise, regulatory_tightening
+BAJFINANCE:
+positive: credit_growth, consumer_demand, rate_cut, fintech_growth
+negative: rate_hike, npa_rise, regulatory_tightening
+BAJAJFINSV:
+positive: insurance_growth, rate_cut
+negative: rate_hike, claims_spike
+IT
+INFY:
+positive: usd_strong, us_it_spend_up, digital_transformation, ai_adoption
+negative: usd_weak, us_recession, immigration_restrictions
+TCS:
+positive: usd_strong, us_it_spend_up, digital_transformation
+negative: usd_weak, us_recession, immigration_restrictions
+HCLTECH:
+positive: usd_strong, us_it_spend_up, digital_transformation
+negative: usd_weak, us_recession
+WIPRO:
+positive: usd_strong, us_it_spend_up
+negative: usd_weak, us_recession, margin_pressure
+TECHM:
+positive: usd_strong, us_it_spend_up, auto_tech
+negative: usd_weak, us_recession
+Energy
+RELIANCE:
+positive: refining_margins_up, energy_demand_growth, jio_growth
+negative: windfall_tax, oil_price_crash, regulatory_restrictions
+ONGC:
+positive: oil_price_up, govt_support
+negative: oil_price_crash, windfall_tax, subsidy_burden
+BPCL:
+positive: crude_price_down, marketing_margin_up
+negative: crude_price_up, subsidy_burden
+NTPC:
+positive: power_demand_up, renewable_push, govt_spending
+negative: coal_shortage, regulatory_delay
+POWERGRID:
+positive: power_demand_up, transmission_expansion
+negative: regulatory_delay, land_acquisition_issues
+COALINDIA:
+positive: power_demand_up, coal_price_up
+negative: renewable_push, environmental_restrictions
+Auto
+MARUTI:
+positive: rate_cut, rural_demand_up, commodity_cost_down
+negative: steel_cost_up, fuel_price_up, rate_hike
+TATAMOTORS:
+positive: ev_adoption, jlr_recovery, commodity_cost_down
+negative: steel_cost_up, chip_shortage, uk_recession
+M&M:
+positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+negative: steel_cost_up, fuel_price_up, rate_hike
+BAJAJ-AUTO:
+positive: two_wheeler_demand, export_growth, rate_cut
+negative: fuel_price_up, rate_hike, electric_competition
+HEROMOTOCO:
+positive: two_wheeler_demand, rural_growth, rate_cut
+negative: fuel_price_up, rate_hike, electric_competition
+EICHERMOT:
+positive: premium_bike_demand, export_growth, rate_cut
+negative: fuel_price_up, rate_hike, electric_competition
+Pharma
+SUNPHARMA:
+positive: fda_approval, patent_wins, generic_boom, us_demand_up
+negative: fda_warning, patent_loss, pricing_pressure
+DRREDDY:
+positive: fda_approval, patent_wins, generic_boom
+negative: fda_warning, patent_loss, pricing_pressure
+CIPLA:
+positive: fda_approval, generic_boom, api_demand
+negative: fda_warning, pricing_pressure
+DIVISLAB:
+positive: api_demand, china_alternative, fda_approval
+negative: china_competition, fda_warning
+FMCG
+HINDUNILVR:
+positive: rural_demand_up, monsoon_good, premiumization
+negative: inflation_up, rural_distress
+ITC:
+positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+negative: tax_hike_cigarette, esg_pressure
+NESTLEIND:
+positive: urban_demand_up, premiumization
+negative: inflation_up, input_cost_up
+BRITANNIA:
+positive: rural_demand_up, monsoon_good, inflation_down
+negative: inflation_up, input_cost_up
+TATACONSUM:
+positive: beverage_demand, premiumization
+negative: inflation_up, input_cost_up
+Infrastructure
+LT:
+positive: infra_spending, govt_capex, order_book_up
+negative: interest_rate_up, execution_delay
+ULTRACEMCO:
+positive: infra_spending, housing_demand
+negative: fuel_cost_up, competition
+GRASIM:
+positive: cement_demand, textile_recovery
+negative: fuel_cost_up, cotton_price_up
+ADANIENT:
+positive: infra_spending, cement_demand, energy_transition
+negative: regulatory_scrutiny, debt_concerns
+ADANIPORTS:
+positive: trade_growth, port_expansion, logistics_boom
+negative: trade_war, regulatory_scrutiny
+Others
+BHARTIARTL:
+positive: tariff_hike, 5g_rollout, data_consumption_up
+negative: tariff_war, regulatory_fine
+ASIANPAINT:
+positive: housing_demand, monsoon_good, premiumization
+negative: input_cost_up, competition
+TITAN:
+positive: gold_price_up, wedding_season, premiumization
+negative: gold_price_crash, competition
+APOLLOHOSP:
+positive: healthcare_spending, insurance_penetration
+negative: regulatory_price_cap, input_cost_up
+SBILIFE:
+positive: insurance_penetration, rate_cut, vnb_margin_up
+negative: rate_hike, claims_spike
+HDFCLIFE:
+positive: insurance_penetration, rate_cut, vnb_margin_up
+negative: rate_hike, claims_spike
+UPL:
+positive: monsoon_good, global_agri_demand
+negative: monsoon_bad, generic_competition
+14. TELEGRAM ALERT FORMAT
+Every alert must look exactly like this:
+plain
+🚨 IIIS SIGNAL ALERT
+
+Signal ID: IIIS-YYYY-MM-DD-NNN
+Time: HH:MM AM IST
+Valid Until: HH:MM AM IST (calculated from regime rules, Section 16)
+
+Stock: SYMBOL
+Direction: LONG or SHORT
+Score: XX out of 100
+Confidence: HIGH or MEDIUM or LOW
+Risk Grade: A+ or A or B+ or B or C
+
+Market Context:
+Regime: [Trend Day / Expiry Day / Reversal Day / Transition Day / Range Day]
+Sector Rank: [number]
+RS Percentile: [number]
+Volume: [N]x average
+VIX: [number]
+
+Trade Levels:
+Entry Zone: XXX to XXX
+Stop Loss: XXX
+Target 1: XXX (1.5R)
+Target 2: XXX (2.5R)
+Quantity: NNN shares
+Risk: ₹XXX (0.5%)
+
+Intelligence:
+GEIE Direction: POSITIVE or NEGATIVE or NEUTRAL or UNAVAILABLE
+GEIE Reason: [one line here]
+Historical Win Rate: XX% (N setups found)
+ARC Pre-Market: APPROVE or CAUTION or REJECT or UNREVIEWED
+
+SMC Structure: [5m signal] + [15m signal]
+Options: [build-up type here]
+
+💰 BIG MONEY SIGNALS
+FII Trend: [BUYER/SELLER] [N] days [✅/❌]
+Bulk Deal: [Rs XXCr BUY/SELL at HH:MM] [✅/❌]
+Options: [PUT/CALL writing heavy at strike] [✅/❌]
+OB Zone: [level] (tested [N]x, held [N]x) [✅/❌]
+RS Diverge: [+/-X.X%] vs NIFTY [+/-X.X%] [✅/❌]
+Big Money Score: [XX]/100
+Conclusion: [Institutions accumulating/distributing/neutral]
+
+⚠️ This is an intelligence alert only.
+Human decision required.
+System never executes trades.
+Alert expires: HH:MM AM IST
+15. RISK GRADE DEFINITIONS
+Table
+Grade	Score Range	GEIE	Historical WR	Confidence	Big Money	Notes
+A+	> 95	HIGH confidence	> 65%	HIGH	Any	Best quality
+A	90-94	HIGH or MEDIUM	> 55%	HIGH	80+ upgrades B+→A	
+B+	87-89	MEDIUM	> 50%	MEDIUM	80+ upgrades B→B+	
+B	86	LOW or NEUTRAL	> 45%	MEDIUM	Any	Minimum passing score
+C	Any	Any	Any	Any	Any	CAUTION flag present
+Upgrade Rules:
+Base B (86) + Big Money ≥80 = Final B+
+Base B+ (87-89) + Big Money ≥80 = Final A
+Base A (90-94) + Big Money ≥80 = Final A+
+Base A+ (95+) = No upgrade needed
+Note: Score 85 is REJECTED. Grade B starts at 86.
+16. ALERT VALIDITY & COOLDOWN RULES
+Alert Validity by Regime
+Table
+Regime	Validity Period
+Trend Day	15 minutes
+Expiry Day	5 minutes
+Reversal Day	10 minutes
+Transition Day	10 minutes (alerts blocked anyway)
+Range Day	10 minutes (alerts blocked anyway)
+Auto expiry always enabled
+Valid until = Alert time + validity period
+After expiry, signal status changes to EXPIRED
+Alert Cooldown
+Standard Cooldown:
+Same stock, same direction = 30 minute wait from last alert expiry
+Cooldown Exception (allows immediate re-alert):
+Score improves by 10 or more points AND
+New market regime detected (different from previous alert's regime)
+Exception does NOT apply if:
+Same regime, even with +10 score improvement
+Different direction (treated as new signal, no cooldown)
+17. RISK MANAGEMENT
+Table
+Parameter	Value
+Risk per trade	0.5% of capital
+Maximum daily risk	2% of capital
+Hard stop	3 consecutive losses
+After hard stop	No alerts until next day (03:30 PM reset)
+Position Size Formula
+plain
+Size = (Capital × 0.5%) ÷ max((Entry − Stop Loss), Entry × 0.001)
+VIX Position Adjustment
+Table
+VIX Level	Position Size
+Below 15	100% (full size)
+15 to 20	75% of calculated size
+Above 20	50% of calculated size
+Maximum single position: 10% of capital
+Daily reset at 03:30 PM: Risk counters reset to zero, consecutive loss counter resets
+18. DATABASE SCHEMA — 16 TABLES
+TABLE 1: market_data (TimescaleDB)
+sql
+CREATE TABLE market_data (
+    time TIMESTAMPTZ NOT NULL,
+    symbol VARCHAR(20) NOT NULL,
+    open DECIMAL(12,4),
+    high DECIMAL(12,4),
+    low DECIMAL(12,4),
+    close DECIMAL(12,4),
+    volume BIGINT,
+    vwap DECIMAL(12,4),
+    timeframe VARCHAR(10) NOT NULL
+);
+SELECT create_hypertable('market_data', 'time', chunk_time_interval => INTERVAL '1 day');
+TABLE 2: signals
+sql
+CREATE TABLE signals (
+    signal_id VARCHAR(30) PRIMARY KEY,
+    timestamp TIMESTAMPTZ NOT NULL,
+    symbol VARCHAR(20) NOT NULL,
+    direction VARCHAR(10) NOT NULL CHECK (direction IN ('LONG', 'SHORT')),
+    score DECIMAL(5,2) NOT NULL CHECK (score > 85.0),
+    confidence VARCHAR(10) NOT NULL CHECK (confidence IN ('HIGH', 'MEDIUM', 'LOW')),
+    regime VARCHAR(20) NOT NULL,
+    entry_low DECIMAL(12,4) NOT NULL,
+    entry_high DECIMAL(12,4) NOT NULL,
+    stop_loss DECIMAL(12,4) NOT NULL,
+    target_1 DECIMAL(12,4) NOT NULL,
+    target_2 DECIMAL(12,4) NOT NULL,
+    quantity INTEGER NOT NULL,
+    risk_amount DECIMAL(12,2) NOT NULL,
+    geie_direction VARCHAR(20),
+    geie_confidence VARCHAR(10),
+    arc_decision VARCHAR(20),
+    historical_wr DECIMAL(5,2),
+    historical_sample INTEGER,
+    risk_grade VARCHAR(5) NOT NULL,
+    status VARCHAR(20) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'EXPIRED', 'HIT_SL', 'HIT_T1', 'HIT_T2', 'CANCELLED')),
+    valid_until TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+TABLE 3: active_alerts
+sql
+CREATE TABLE active_alerts (
+    alert_id SERIAL PRIMARY KEY,
+    signal_id VARCHAR(30) REFERENCES signals(signal_id),
+    symbol VARCHAR(20) NOT NULL,
+    direction VARCHAR(10) NOT NULL,
+    sector VARCHAR(50) NOT NULL,
+    triggered_at TIMESTAMPTZ NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL
+);
+TABLE 4: risk_state
+sql
+CREATE TABLE risk_state (
+    session_date DATE UNIQUE NOT NULL,
+    daily_risk_used DECIMAL(5,2) DEFAULT 0,
+    consecutive_losses INTEGER DEFAULT 0,
+    hard_stop_active BOOLEAN DEFAULT FALSE,
+    total_signals INTEGER DEFAULT 0,
+    signals_hit_sl INTEGER DEFAULT 0,
+    signals_hit_t1 INTEGER DEFAULT 0,
+    signals_hit_t2 INTEGER DEFAULT 0,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+TABLE 5: regime_history
+sql
+CREATE TABLE regime_history (
+    id SERIAL PRIMARY KEY,
+    timestamp TIMESTAMPTZ NOT NULL,
+    regime VARCHAR(20) NOT NULL,
+    regime_score DECIMAL(5,2) NOT NULL,
+    adx DECIMAL(8,4),
+    nifty_price DECIMAL(12,4),
+    ad_ratio DECIMAL(5,2),
+    notes TEXT
+);
+TABLE 6: audit_log
+sql
+CREATE TABLE audit_log (
+    id BIGSERIAL PRIMARY KEY,
+    timestamp TIMESTAMPTZ DEFAULT NOW(),
+    component VARCHAR(50) NOT NULL,
+    action VARCHAR(100) NOT NULL,
+    result VARCHAR(50) NOT NULL,
+    reason TEXT,
+    metadata JSONB
+);
+CREATE INDEX idx_audit_timestamp ON audit_log(timestamp);
+-- RULE: Never delete. Never update. Append only forever.
+TABLE 7: system_health
+sql
+CREATE TABLE system_health (
+    id SERIAL PRIMARY KEY,
+    checked_at TIMESTAMPTZ NOT NULL,
+    component VARCHAR(50) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    response_time_ms INTEGER,
+    ghost_mode_active BOOLEAN DEFAULT FALSE,
+    last_error TEXT
+);
+TABLE 8: geie_events
+sql
+CREATE TABLE geie_events (
+    event_id VARCHAR(50) PRIMARY KEY,
+    timestamp TIMESTAMPTZ NOT NULL,
+    event_name VARCHAR(100),
+    impact_direction VARCHAR(20),
+    confidence VARCHAR(10),
+    urgency VARCHAR(20),
+    beneficiaries JSONB,
+    losers JSONB,
+    neutral JSONB,
+    raw_output JSONB
+);
+TABLE 9: geie_master_map
+sql
+CREATE TABLE geie_master_map (
+    symbol VARCHAR(20) PRIMARY KEY,
+    positive_triggers TEXT[],
+    negative_triggers TEXT[],
+    neutral_triggers TEXT[],
+    last_updated TIMESTAMPTZ DEFAULT NOW()
+);
+TABLE 10: options_data
+sql
+CREATE TABLE options_data (
+    time TIMESTAMPTZ NOT NULL,
+    symbol VARCHAR(20) NOT NULL,
+    strike DECIMAL(12,4) NOT NULL,
+    expiry DATE NOT NULL,
+    option_type VARCHAR(5) NOT NULL CHECK (option_type IN ('CE', 'PE')),
+    oi BIGINT,
+    oi_change BIGINT,
+    volume BIGINT,
+    iv DECIMAL(8,4),
+    ltp DECIMAL(12,4),
+    PRIMARY KEY (time, symbol, strike, expiry, option_type)
+);
+TABLE 11: earnings_calendar
+sql
+CREATE TABLE earnings_calendar (
+    symbol VARCHAR(20) NOT NULL,
+    earnings_date DATE NOT NULL,
+    earnings_time TIME,
+    PRIMARY KEY (symbol, earnings_date)
+);
+TABLE 12: event_calendar
+sql
+CREATE TABLE event_calendar (
+    event_name VARCHAR(100) NOT NULL,
+    event_date DATE NOT NULL,
+    event_time TIME,
+    impact_level VARCHAR(20) NOT NULL,
+    description TEXT,
+    PRIMARY KEY (event_name, event_date)
+);
+TABLE 13: fii_dii_tracker (NEW v4.6)
+sql
+CREATE TABLE fii_dii_tracker (
+    date DATE PRIMARY KEY,
+    fii_action VARCHAR(10) NOT NULL CHECK (fii_action IN ('BUYER', 'SELLER')),
+    fii_amount_crores DECIMAL(12,2),
+    dii_action VARCHAR(10) NOT NULL CHECK (dii_action IN ('BUYER', 'SELLER')),
+    dii_amount_crores DECIMAL(12,2),
+    combined_bias VARCHAR(20) NOT NULL CHECK (combined_bias IN ('BULLISH', 'BEARISH', 'NEUTRAL')),
+    consecutive_fii_buy_days INTEGER DEFAULT 0,
+    consecutive_fii_sell_days INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+TABLE 14: bulk_deal_tracker (NEW v4.6)
+sql
+CREATE TABLE bulk_deal_tracker (
+    id SERIAL PRIMARY KEY,
+    timestamp TIMESTAMPTZ NOT NULL,
+    symbol VARCHAR(20) NOT NULL,
+    deal_type VARCHAR(10) NOT NULL CHECK (deal_type IN ('BUY', 'SELL')),
+    quantity BIGINT,
+    price DECIMAL(12,4),
+    value_crores DECIMAL(12,2),
+    client_name VARCHAR(200),
+    deal_category VARCHAR(10) NOT NULL CHECK (deal_category IN ('BULK', 'BLOCK')),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_bulk_symbol ON bulk_deal_tracker(symbol);
+CREATE INDEX idx_bulk_timestamp ON bulk_deal_tracker(timestamp);
+TABLE 15: options_intelligence (NEW v4.6)
+sql
+CREATE TABLE options_intelligence (
+    date DATE NOT NULL,
+    symbol VARCHAR(20) NOT NULL,
+    max_pain_level DECIMAL(12,4),
+    highest_put_oi_strike DECIMAL(12,4),
+    highest_call_oi_strike DECIMAL(12,4),
+    unusual_activity_detected BOOLEAN DEFAULT FALSE,
+    unusual_strike DECIMAL(12,4),
+    unusual_type VARCHAR(10) CHECK (unusual_type IN ('CALL', 'PUT')),
+    unusual_oi_change BIGINT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (date, symbol)
+);
+TABLE 16: order_block_memory (NEW v4.6)
+sql
+CREATE TABLE order_block_memory (
+    id SERIAL PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    timeframe VARCHAR(10) NOT NULL CHECK (timeframe IN ('5m', '15m', 'Daily')),
+    ob_type VARCHAR(10) NOT NULL CHECK (ob_type IN ('BULLISH', 'BEARISH')),
+    ob_high DECIMAL(12,4) NOT NULL,
+    ob_low DECIMAL(12,4) NOT NULL,
+    ob_midpoint DECIMAL(12,4) NOT NULL,
+    first_detected TIMESTAMPTZ NOT NULL,
+    last_tested TIMESTAMPTZ,
+    test_count INTEGER DEFAULT 0,
+    held_count INTEGER DEFAULT 0,
+    broken BOOLEAN DEFAULT FALSE,
+    broken_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_ob_symbol ON order_block_memory(symbol);
+CREATE INDEX idx_ob_broken ON order_block_memory(broken) WHERE broken = FALSE;
+19. GHOST MODE
+Triggers that Activate Ghost Mode
+Upstox WebSocket feed fails
+Database connection lost
+Any single API fails 3 times in a row
+Market data gap more than 2 minutes
+4 consecutive health check failures (120 seconds, aligned with 2-minute data gap threshold)
+Actions when Ghost Mode Activates
+Stop ALL new alerts immediately
+Purge any pending alert queue
+Continue monitoring and logging
+Send Telegram message to admin
+NEVER resume automatically
+Wait for manual human approval
+Ghost Mode Admin Message Format
+plain
+🚨 GHOST MODE ACTIVATED
+
+Reason: [state reason here]
+Time: [timestamp here]
+
+All alerts stopped.
+Data integrity may be compromised.
+
+Send /resume command to restart.
+Manual verification required before resume.
+20. MONITORING
+Health check runs every 30 seconds
+Check all 7 components:
+Upstox WebSocket connection
+Perplexity API response
+Gemini API response
+Claude API response
+Telegram Bot status
+PostgreSQL connection
+Redis connection
+Log every check to system_health table
+Alert admin if any component is DOWN
+4 consecutive failures = trigger Ghost Mode
+21. SESSION END PROTOCOL
+Table
+Time	Action
+03:14:30 PM	Lock queue, no new alerts
+03:15:00 PM	Stop all alert generation
+03:20:00 PM	Close all monitoring loops
+03:30:00 PM	Freeze session and reset counters
+04:00:00 PM	Run ARC post-market batch
+04:30:00 PM	Generate and send EOD report
+EOD Report Must Include
+Total stocks scanned today
+Total signals generated
+Total alerts sent
+Total alerts rejected and why (per gate)
+Daily risk percentage used
+Consecutive loss count
+Regime accuracy assessment
+GEIE direction accuracy
+Historical pattern accuracy
+Big Money signals detected today
+System uptime and health summary
+Next day watchlist draft
+22. DEVELOPMENT PHASES IN ORDER
+Phase 1 — Infrastructure (Week 1-2)
+Set up VPS primary and backup
+Install PostgreSQL with TimescaleDB
+Install Redis
+Create Docker setup
+Create all 16 database tables
+Set up environment variables
+Build health monitoring system
+Build Ghost Mode system
+Build audit logging system
+Test all connections
+Do not proceed until all tests pass
+Phase 2 — Market Data (Week 3)
+Integrate Upstox API V3
+Build WebSocket connection with auto-reconnect
+Build REST fallback for WebSocket failure
+Build OHLC candle constructor from tick data
+Build 1m, 5m, 15m, 30m, Daily candle builder
+Build instrument master loader for NIFTY 50
+Test live data flow for all 50 stocks
+Verify latency under 100ms
+Phase 3 — Multi Timeframe Engine (Week 4)
+Build trend calculator for each timeframe
+Build alignment scorer across timeframes
+Minimum 3 of 4 alignment rule (same direction)
+Phase 4 — SMC Engine (Week 5)
+Build BOS detector for 5m and 15m
+Build CHOCH detector for 5m and 15m
+Build Order Block detector for 5m and 15m
+Build FVG detector for 5m and 15m
+Build cross-timeframe validator
+Enforce 5m + 15m mandatory rule
+Build direction mapping logic
+Phase 5 — Options Engine (Week 6)
+Build option chain fetcher from Upstox
+Build PCR calculator
+Build OI change tracker
+Build buildup classifier
+Build 5-minute scheduler (synchronized to market clock)
+Build event-driven trigger on SMC
+Phase 6 — Scoring Engine (Week 7)
+Build all 7 individual engines (Regime, RS, RVOL, Breadth, Options, Sector, SMC Quality)
+Build composite score calculator
+Build regime detector
+Build sector mapper
+Enforce score threshold strictly > 85
+Phase 7 — Risk Gates (Week 8)
+Build all 8 gates in order
+Build earnings calendar loader (24-hour Asia/Kolkata window)
+Build event calendar loader (RBI, Fed, CPI, GDP, Budget, MPC)
+Build VIX adjustment logic
+Build ATR-based pause logic
+Ensure gates run before AI layers
+Phase 8 — Backtesting Engine (Week 9-10)
+Build historical data downloader
+Build signal replay engine
+Build performance metrics calculator
+Run 90 days of backtest
+Validate: Profit Factor above 1.5, Drawdown below 15%, Win Rate above 45%
+Fix any issues before proceeding
+Phase 9 — GEIE Engine (Week 11)
+Build Perplexity integration
+Build Gemini integration
+Build master correlation map loader with all 50 stocks
+Build Redis caching for GEIE output (60-min fallback)
+Build failure handling (NEVER block alerts)
+Test end-to-end
+Phase 10 — Historical Pattern Engine (Week 12)
+Build similar setup searcher (90-day lookback)
+Build win rate calculator
+Build confidence scorer
+Enforce minimum 10 setup rule
+Build direction mapping from SMC
+Phase 11 — ARC Engine (Week 13)
+Build Claude API integration
+Build pre-market batch processor (08:20 AM)
+Build post-market reviewer (04:00 PM)
+Build failure handling (UNREVIEWED fallback)
+Build veto logic (REJECT removes from watchlist)
+Phase 12 — Telegram System (Week 14)
+Build Telegram bot
+Build alert formatter with exact format (including Big Money section)
+Build alert validity timer (regime-based)
+Build auto expiry system
+Build cooldown tracker (30-min standard, +10 score + regime change exception)
+Build admin alert system
+Build Ghost Mode messaging
+Phase 13 — Big Money Module (Week 15-16) [NEW v4.6]
+Build FII/DII tracker (NSE data fetch)
+Build bulk deal monitor (15-min scan)
+Build options big money detector (unusual activity, max pain, OI zones)
+Build order block memory database
+Build RS divergence detector
+Build Big Money confluence score calculator
+Integrate into live scan (Step 15)
+Update Telegram format with Big Money section
+Update Risk Grade with upgrade logic
+Phase 14 — Paper Trading (Week 17-20)
+Run live paper trading for 30 days
+Track all metrics including Big Money accuracy
+Fix any bugs found
+Validate system performance
+Phase 15 — Live Production (Week 21 onward)
+Start with ₹50,000 capital
+Run for 30 days. Review results.
+If profitable: increase to ₹2,00,000
+Run for 30 days. Review results.
+If profitable: increase to ₹10,00,000
+Then full deployment
+23. NON-NEGOTIABLE RULES
+NEVER violate these under any condition:
+Human always makes final trade decision.
+System NEVER executes any trade.
+Score threshold is strictly above 85 (≥ 86.0).
+Risk per trade is always 0.5%.
+Maximum daily risk is always 2%.
+Hard stop at 3 consecutive losses.
+All 8 gates always run before AI.
+ATR period always 14 on 15m chart.
+RVOL always uses 20-day average.
+Ghost Mode always requires manual resume.
+GEIE failure never blocks any alert.
+ARC never runs in live 60-second scan.
+Maximum 4 active alerts at any time.
+Maximum 2 same sector per 30 minutes.
+Alert cooldown 30 min same stock same direction.
+GEIE weight in scoring is 0%.
+ARC weight in scoring is 0%.
+All API keys in environment variables.
+Audit log is never deleted.
+No hardcoded credentials anywhere.
+Big Money Score weight = 0%. Context only.
+Big Money affects Risk Grade only. Not numerical score.
+Big Money Score 0 = signal proceeds normally. Enhancement only.
+Bulk deal monitor never blocks alert. Information only.
+FII data from NSE official only. No third party estimates.
+24. ERRATA: v4.4 → v4.6 CHANGES
+Critical Fixes (from v4.5)
+Table
+#	Issue	v4.4 Problem	v4.5/v4.6 Fix
+1	Score Threshold / Risk Grade	Grade B covered "85-86" but 85 rejected	Grade B = Score 86 only. LOW starts at 86.
+2	Undefined "Signal Quality"	10% weight but never defined	Renamed to "SMC Signal Quality" with explicit scoring
+3	SMC Direction Mapping	Structure detected but no Long/Short mapping	Added explicit direction mapping rules
+4	Gate 8 Volatility Confusion	Mixed VIX/ATR under same header	Split: VIX = position reduction, ATR = pause
+5	Position Size Division by Zero	Could divide by zero	Guard: min stop = 0.1% of entry
+Moderate Fixes (from v4.5)
+Table
+#	Issue	Fix
+6	Options Engine Timing	Specified: 5-min market-clock sync + event-driven priority
+7	GEIE Score Field	Renamed to "magnitude" (human ref only)
+8	ARC Veto Power	Explicit: REJECT = remove from watchlist
+9	Cooldown Exception	Requires BOTH +10 score AND new regime
+10	RVOL Score	Linear interpolation between thresholds
+11	NIFTY Return	Explicit calculation over same weighted periods
+12	Multi Timeframe	Must align in SAME DIRECTION
+v4.6 Big Money Additions
+Table
+#	Addition	Description
+13	16-Step Live Scan	Added Step 15: Big Money Confluence Check
+14	4 New Database Tables	fii_dii_tracker, bulk_deal_tracker, options_intelligence, order_block_memory
+15	FII/DII Tracker	Daily NSE data, 5-day trend, combined bias
+16	Bulk Deal Monitor	15-min scan, ₹25Cr+ threshold, intraday flag
+17	Options Big Money	Unusual activity (3x OI), max pain, OI concentration zones
+18	Order Block Memory	Permanent OB database, test tracking, strength scoring
+19	RS Divergence	Hidden accumulation/distribution detection
+20	Big Money Confluence	5-signal score (0-100), Risk Grade upgrade logic
+21	Updated Telegram Format	Added 💰 Big Money Signals section
+22	Updated Risk Grades	Big Money ≥80 upgrades: B→B+, B+→A, A→A+
+23	Updated GEIE Prompt	Added FII trend, block deals, OI levels
+24	Updated ARC Prompt	Added Big Money context for decisions
+25	New Phase 13	Big Money Module (Week 15-16)
+26	25 Non-Negotiable Rules	Added Rules 21-25 for Big Money
+VERSION: IIIS v4.6 PRODUCTION
+STATUS: FROZEN — READY FOR PHASE 1
+NEXT STEP: BEGIN PHASE 1 (Infrastructure)
+INSTRUCTION TO AI AGENT
+You have read the complete corrected specification.
+Now tell me:
+Confirm you understood everything.
+Ask me: Ready to start Phase 1?
+Wait for my go ahead.
+Build one phase at a time.
+Test before moving to next phase.
+Ask for my approval after each phase.
+Never skip any step.
+Never add features not in this spec.
+Never remove features from this spec.
+Follow non-negotiable rules always.
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-06-15T19:52:37+05:30.
+</ADDITIONAL_METADATA>
+<USER_SETTINGS_CHANGE>
+The user changed setting `Model Selection` from None to Gemini 3.5 Flash (Medium). No need to comment on this change if the user doesn't ask about it. If reporting what model you are, please use a human readable name instead of the exact string.
+</USER_SETTINGS_CHANGE>

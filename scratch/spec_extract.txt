@@ -1,0 +1,3278 @@
+
+--- MATCH FOUND AT LINE 32 (Database Schema — 16 Tables) ---
+0: <USER_REQUEST>
+1: IIIS v4.6 — Institutional Intraday Intelligence System with Big Money Detection
+2: Version: v4.6 (Corrected from v4.4/v4.5, Big Money Module Added)
+3: Status: FROZEN — Ready for Phase 1 Implementation
+4: Last Updated: 2026-06-15
+5: Previous Versions: v4.4 (Original), v4.5 (Corrected), v4.6 (Big Money + Final)
+6: plain
+7: You are building IIIS v4.6 - Institutional 
+8: Intraday Intelligence System with Big Money Detection.
+9: 
+10: Read this complete specification carefully.
+11: Then confirm you understand it.
+12: Then ask me which phase to start.
+13: Do NOT write any code until I say start.
+14: TABLE OF CONTENTS
+15: What is IIIS
+16: Technology Stack
+17: Environment Variables
+18: Daily Timeline
+19: Live Scan — 16 Steps Every 60 Seconds
+20: Market Regime Engine
+21: Composite Score & Weightings
+22: Risk Gates
+23: Big Money Detection Module
+24: Big Money Confluence Score
+25: ARC Engine — Claude API
+26: GEIE Engine — Gemini API
+27: GEIE Master Map — All 50 Stocks
+28: Telegram Alert Format
+29: Risk Grade Definitions
+30: Alert Validity & Cooldown Rules
+31: Risk Management
+32: Database Schema — 16 Tables
+33: Ghost Mode
+34: Monitoring
+35: Session End Protocol
+36: Development Phases in Order
+37: Non-Negotiable Rules
+38: Errata (v4.4 → v4.6 Changes)
+39: 1. WHAT IS IIIS
+40: IIIS is a trading intelligence alert system for NIFTY 50 stocks.
+41: The system:
+42: Monitors all 50 NIFTY stocks every minute
+43: Finds high quality trade opportunities
+44: Detects institutional (Big Money) activity
+45: Sends alerts via Telegram
+46: NEVER places trades automatically
+47: Human always executes trades manually
+48: Simple analogy:
+49: IIIS is a smart munshi who watches 50 stocks all day, tracks where institutions are putting money, and calls you when a good opportunity appears. You decide to trade or not.
+50: 2. TECHNOLOGY STACK
+51: Table
+52: Component	Technology
+53: Language	Python 3.11+
+54: Database	PostgreSQL + TimescaleDB
+55: Cache	Redis
+56: Container	Docker
+57: Primary VPS	DigitalOcean Mumbai — 8GB RAM, 4CPU, 160GB SSD
+58: Backup VPS	AWS Lightsail Mumbai — 4GB RAM, 2CPU, 80GB SSD
+59: Market Data	Upstox API V3
+60: News	Perplexity API
+61: Event Analysis	Gemini API (GEIE)
+62: Research	Claude API (ARC)
+63: Alerts	Telegram Bot API
+64: FII/DII Data	NSE Official Website
+65: Bulk Deals	NSE India Website
+66: 3. ENVIRONMENT VARIABLES
+67: Create .env file with these:
+68: env
+69: # Upstox API
+70: UPSTOX_API_KEY=your_actual_key_here
+71: UPSTOX_API_SECRET=your_actual_secret_here
+72: UPSTOX_REDIRECT_URI=http://localhost:8000/callback
+73: 
+74: # AI APIs
+75: PERPLEXITY_API_KEY=your_actual_key_here
+76: GEMINI_API_KEY=your_actual_key_here
+77: CLAUDE_API_KEY=your_actual_key_here
+78: 
+79: # Telegram
+80: TELEGRAM_BOT_TOKEN=your_actual_token_here
+81: TELEGRAM_ADMIN_CHAT_ID=your_chat_id_here
+================================================================================
+
+--- MATCH FOUND AT LINE 124 (STEP 2 — MULTI TIMEFRAME ENGINE) ---
+74: # AI APIs
+75: PERPLEXITY_API_KEY=your_actual_key_here
+76: GEMINI_API_KEY=your_actual_key_here
+77: CLAUDE_API_KEY=your_actual_key_here
+78: 
+79: # Telegram
+80: TELEGRAM_BOT_TOKEN=your_actual_token_here
+81: TELEGRAM_ADMIN_CHAT_ID=your_chat_id_here
+82: 
+83: # Database
+84: DB_HOST=localhost
+85: DB_PORT=5432
+86: DB_NAME=iiis
+87: DB_USER=iiis_user
+88: DB_PASSWORD=strong_password_here
+89: 
+90: # Redis
+91: REDIS_HOST=localhost
+92: REDIS_PORT=6379
+93: 
+94: # Risk Settings
+95: CAPITAL=1000000
+96: RISK_PCT=0.5
+97: MAX_DAILY_RISK_PCT=2.0
+98: HARD_STOP_LOSSES=3
+99: 
+100: # System
+101: TIMEZONE=Asia/Kolkata
+102: 4. DAILY TIMELINE
+103: Table
+104: Time	Activity
+105: 07:00 AM	Global news scan (Perplexity)
+106: 08:00 AM	India news scan (Perplexity)
+107: 08:05 AM	GEIE run (Gemini) — Cache result in Redis, valid all day
+108: 08:10 AM	Sector ranking calculation
+109: 08:15 AM	FII/DII data fetch (NSE) — Store in database
+110: 08:20 AM	Watchlist generation + ARC batch review (Claude) + Send pre-market brief Telegram
+111: 09:15 AM	Market opens. No alerts.
+112: 09:25 AM	Live scanning starts — Every 60 seconds, all 50 NIFTY stocks
+113: 03:14 PM	Queue lock
+114: 03:15 PM	Stop all alerts
+115: 03:30 PM	Freeze session and reset counters
+116: 04:00 PM	ARC post-market review
+117: 04:30 PM	Generate and send EOD report
+118: 5. LIVE SCAN — 16 STEPS EVERY 60 SECONDS
+119: Run for all 50 stocks simultaneously:
+120: STEP 1 — GET LIVE DATA
+121: Source: Upstox WebSocket V3
+122: Get: Price, OHLC, Volume, VIX
+123: Latency must be under 100ms
+124: STEP 2 — MULTI TIMEFRAME ENGINE
+125: Calculate trends on: Daily, 1 Hour, 15 Minute, 5 Minute
+126: Minimum 3 of 4 timeframes must align in the SAME DIRECTION (all bullish or all bearish)
+127: Output: Alignment score 0-100
+128: STEP 3 — SMC ENGINE
+129: Detect on both 5m and 15m charts:
+130: BOS: Close above previous swing high OR below previous swing low. Use 5 bar lookback.
+131: CHOCH: Change of market structure
+132: Order Block: Last opposite candle before impulse move
+133: FVG: Fair Value Gap between candles
+134: MANDATORY CROSS TIMEFRAME RULE:
+135: Need minimum 2 confirmations.
+136: At least 1 must be from 15m chart
+137: At least 1 must be from 5m chart
+138: PASS examples:
+139: 5m BOS + 15m Order Block = PASS
+140: 5m CHOCH + 15m FVG = PASS
+141: FAIL examples:
+142: 5m BOS + 5m FVG = FAIL
+143: 15m BOS + 15m OB = FAIL
+144: Signal Direction Mapping:
+145: Bullish BOS/CHOCH + bullish OB/FVG = LONG signal
+146: Bearish BOS/CHOCH + bearish OB/FVG = SHORT signal
+147: Mixed signals = NO DIRECTION (reject)
+148: STEP 4 — OPTIONS ENGINE
+149: Scan every 5 minutes (synchronized to market clock: 09:25:00, 09:30:00, 09:35:00, etc.)
+150: Also scan immediately when SMC triggers (event-driven), using most recent 5-minute options data
+151: Calculate:
+152: PCR (Put Call Ratio)
+153: OI Change per strike
+154: Long Buildup detection
+155: Short Buildup detection
+156: Long Unwinding detection
+157: Short Covering detection
+158: PCR Interpretation:
+159: PCR above 1.3 = Bullish
+160: PCR below 0.7 = Bearish
+161: PCR 0.7 to 1.3 = Neutral
+162: Output: Options score 0-100
+163: STEP 5 — RELATIVE STRENGTH ENGINE
+164: Formula: Stock return minus NIFTY 50 return (same weighted timeframes)
+165: Timeframe weights:
+166: 5m = 10%
+167: 15m = 20%
+168: 30m = 30%
+169: Daily = 40%
+170: Output: Percentile rank across NIFTY 50 (0-100)
+171: NIFTY Return Calculation:
+172: Calculate NIFTY 50 return over the same weighted periods (5m/15m/30m/Daily)
+173: Use percentage change from period open to current price
+================================================================================
+
+--- MATCH FOUND AT LINE 187 (Stocks above 20 EMA count) ---
+137: At least 1 must be from 5m chart
+138: PASS examples:
+139: 5m BOS + 15m Order Block = PASS
+140: 5m CHOCH + 15m FVG = PASS
+141: FAIL examples:
+142: 5m BOS + 5m FVG = FAIL
+143: 15m BOS + 15m OB = FAIL
+144: Signal Direction Mapping:
+145: Bullish BOS/CHOCH + bullish OB/FVG = LONG signal
+146: Bearish BOS/CHOCH + bearish OB/FVG = SHORT signal
+147: Mixed signals = NO DIRECTION (reject)
+148: STEP 4 — OPTIONS ENGINE
+149: Scan every 5 minutes (synchronized to market clock: 09:25:00, 09:30:00, 09:35:00, etc.)
+150: Also scan immediately when SMC triggers (event-driven), using most recent 5-minute options data
+151: Calculate:
+152: PCR (Put Call Ratio)
+153: OI Change per strike
+154: Long Buildup detection
+155: Short Buildup detection
+156: Long Unwinding detection
+157: Short Covering detection
+158: PCR Interpretation:
+159: PCR above 1.3 = Bullish
+160: PCR below 0.7 = Bearish
+161: PCR 0.7 to 1.3 = Neutral
+162: Output: Options score 0-100
+163: STEP 5 — RELATIVE STRENGTH ENGINE
+164: Formula: Stock return minus NIFTY 50 return (same weighted timeframes)
+165: Timeframe weights:
+166: 5m = 10%
+167: 15m = 20%
+168: 30m = 30%
+169: Daily = 40%
+170: Output: Percentile rank across NIFTY 50 (0-100)
+171: NIFTY Return Calculation:
+172: Calculate NIFTY 50 return over the same weighted periods (5m/15m/30m/Daily)
+173: Use percentage change from period open to current price
+174: STEP 6 — RVOL ENGINE
+175: Formula: Current volume divided by 20-day average volume (same timeframe)
+176: RVOL scoring (linear interpolation between thresholds):
+177: RVOL ≥ 3.0 = score 100
+178: RVOL 2.0 to 3.0 = score 80 to 100 (linear)
+179: RVOL 1.5 to 2.0 = score 60 to 80 (linear)
+180: RVOL 1.0 to 1.5 = score 40 to 60 (linear)
+181: RVOL < 1.0 = score 0 to 40 (linear, capped at 40)
+182: Output: RVOL score 0-100
+183: STEP 7 — BREADTH ENGINE
+184: Calculate from all 50 NIFTY stocks:
+185: Advance Decline Ratio
+186: Stocks above VWAP count
+187: Stocks above 20 EMA count
+188: New Highs count
+189: New Lows count
+190: Output: Breadth score 0-100
+191: STEP 8 — SECTOR STRENGTH ENGINE
+192: Use pre-calculated sector ranking from 08:10 AM calculation
+193: Map each stock to its sector
+194: Assign sector score
+195: Output: Sector score 0-100
+196: STEP 9 — COMPOSITE SCORE
+197: 7 Input Engines & Weightings:
+198: Table
+199: Engine	Weight	Description
+200: Market Regime	25%	From Regime Engine (Step 10)
+201: Relative Strength	20%	From Step 5
+202: Volume RVOL	15%	From Step 6
+203: Market Breadth	10%	From Step 7
+204: Options Flow	10%	From Step 4
+205: Sector Strength	10%	From Step 8
+206: SMC Signal Quality	10%	From Step 3: based on number of SMC confirmations (1=weak, 2=medium, 3+=strong)
+207: Total	100%	
+208: SMC Quality Score (0-100):
+209: 1 SMC confirmation = 40
+210: 2 SMC confirmations = 70
+211: 3+ SMC confirmations = 100
+212: 0 SMC confirmations = 0 (rejected at Gate 2 anyway)
+213: THRESHOLD RULE:
+214: Score must be STRICTLY GREATER than 85
+215: Score 85 = REJECT immediately
+216: Score 86 = proceed to gates
+217: Score 85.5 = REJECT (must be ≥ 86.0)
+218: ATR Standard: Period 14, Timeframe 15m
+219: RVOL Standard: 20-day average
+220: STEP 10 — RISK GATES
+221: Run all 8 gates. All must pass. Any single fail = reject immediately. All gates run BEFORE AI layers.
+222: GATE 1 — LIQUIDITY
+223: Minimum ADTV ₹50 Crore
+224: Maximum bid-ask spread 0.20%
+225: Minimum session RVOL 1.0
+226: Fail = reject
+227: GATE 2 — SMC VALIDATION
+228: Must have cross-timeframe confirmation from Step 3 above
+229: Fail = reject
+230: GATE 3 — CORRELATION
+231: Maximum 2 alerts same sector per 30 min
+232: Maximum 4 active alerts total
+233: Fail = reject
+234: GATE 4 — EARNINGS
+235: Company results within next 24 trading hours (Asia/Kolkata timezone) = block
+236: No exceptions
+================================================================================
+
+--- MATCH FOUND AT LINE 340 (Trend Day	100	100.0	YES	ADX(14) on 15m > 25, NIFTY > EMA 20, AD Ratio > 1.5) ---
+290: AND Historical win rate 50% to 60%
+291: LOW confidence when:
+292: Score 86 to 88 (corrected: was 85-88, but 85 is rejected)
+293: AND GEIE direction NEUTRAL
+294: AND Historical win rate below 50%
+295: Add CAUTION flag to alert
+296: STEP 14 — RISK ENGINE
+297: Check daily risk used is below 2%
+298: Check consecutive losses below 3
+299: Check sector exposure limits
+300: Calculate position size with VIX adjustment
+301: Position Size Formula:
+302: plain
+303: Size = (Capital × 0.5%) ÷ max((Entry − Stop Loss), Entry × 0.001)
+304: Guard against division by zero:
+305: If (Entry − Stop Loss) < 0.1% of Entry price, use minimum stop distance = 0.1% of Entry price
+306: If still zero or negative, reject signal
+307: VIX Adjustment:
+308: VIX below 15: Full size (100%)
+309: VIX 15 to 20: 75% of size
+310: VIX above 20: 50% of size
+311: Maximum position cap: 10% of capital
+312: STEP 15 — BIG MONEY CONFLUENCE CHECK
+313: NEW in v4.6
+314: Check 5 Big Money signals (see Section 10 for details):
+315: Table
+316: Signal	Points	Source
+317: FII Buying Trend (3+ consecutive days)	+20	fii_dii_tracker table
+318: Bulk Deal Same Direction (last 15 min)	+20	bulk_deal_tracker table
+319: Unusual Options Activity (3x OI change)	+20	options_intelligence table
+320: Historical OB Zone Nearby (tested 3+ times)	+20	order_block_memory table
+321: RS Divergence Detected (>1.5% vs NIFTY)	+20	Calculated live
+322: Maximum	100	
+323: Rules:
+324: Big Money Score is CONTEXT only
+325: Weight in composite = 0%
+326: Never blocks signal
+327: Enhances Risk Grade only (see Section 15)
+328: STEP 16 — GENERATE ALERT
+329: If all 15 steps pass:
+330: Generate alert with Big Money section
+331: Apply Risk Grade upgrade if Big Money Score ≥ 80
+332: Send via Telegram
+333: Log to database
+334: Update audit trail
+335: Set valid_until based on regime (see Section 16)
+336: 6. MARKET REGIME ENGINE
+337: This determines 25% of total composite score.
+338: Table
+339: Regime	Regime Score	Max Composite	Alerts Allowed	Notes
+340: Trend Day	100	100.0	YES	ADX(14) on 15m > 25, NIFTY > EMA 20, AD Ratio > 1.5
+341: Expiry Day	70	92.5	YES	Weekly or Monthly expiry day
+342: Reversal Day	50	87.5	YES (HIGH only)	Gap at open > 0.8%, opening direction fails within 30 min, breadth reverses
+343: Transition Day	30	82.5	NO	Cannot mathematically reach 86
+344: Range Day	20	80.0	NO	ADX(14) on 15m < 20, NIFTY inside ATR range, AD Ratio 0.8-1.2
+345: Composite Score Calculation Example (Trend Day):
+346: Regime contribution: 100 × 25% = 25 points
+347: If all other engines score 100: 25 + 20 + 15 + 10 + 10 + 10 + 10 = 100
+348: 7. COMPOSITE SCORE & WEIGHTINGS
+349: Final Formula:
+350: plain
+351: Composite = (RegimeScore × 0.25) + (RS_Score × 0.20) + (RVOL_Score × 0.15) + 
+352:             (Breadth_Score × 0.10) + (Options_Score × 0.10) + (Sector_Score × 0.10) + 
+353:             (SMC_Quality_Score × 0.10)
+354: Big Money Score is NOT included in composite.
+355: 8. RISK GATES (Summary)
+356: Table
+357: Gate	Name	Fail Action
+358: 1	Liquidity	Reject signal
+359: 2	SMC Validation	Reject signal
+360: 3	Correlation	Reject signal
+361: 4	Earnings	Reject signal
+362: 5	Event Risk	Reject signal
+363: 6	Choppy Filter	Block ALL signals
+364: 7	Circuit Breaker	Pause 20 min
+365: 8	Volatility Regime	Reduce size or Pause
+366: 9. BIG MONEY DETECTION MODULE
+367: MODULE 1 — FII/DII TRACKER
+368: Purpose: Track institutional buying and selling to set daily market bias.
+369: Data Source: NSE website daily data. Perplexity API 8 AM scan.
+370: What to track:
+371: Daily FII net activity: Net Buyer or Net Seller (Amount in crores)
+372: Daily DII net activity: Net Buyer or Net Seller (Amount in crores)
+373: 5 day trend: Count consecutive FII buy/sell days
+374: Logic:
+375: FII buyer 3+ consecutive days = BULLISH BIAS for long signals
+376: FII seller 3+ consecutive days = BEARISH BIAS, suppress long signals
+377: FII buyer + DII buyer same day = STRONG BULLISH — extra confidence
+378: FII seller + DII seller same day = STRONG BEARISH — suppress longs
+379: Database: fii_dii_tracker table
+380: MODULE 2 — BLOCK AND BULK DEAL TRACKER
+381: Purpose: Detect large institutional transactions.
+382: Pre-Market Block Deals (8 AM): Already in Perplexity 8 AM scan. No change.
+383: Intraday Bulk Deal Monitor:
+384: URL: https://www.nseindia.com/market-data/bulk-deal
+385: Scan: Every 15 minutes during live market
+386: Detect: Any deal above ₹25 crore in NIFTY 50 stocks
+387: Logic:
+388: Bulk buy deal in stock X = Add INSTITUTIONAL BUY FLAG
+389: Bulk sell deal in stock X = Add INSTITUTIONAL SELL FLAG
+================================================================================
+
+--- MATCH FOUND AT LINE 343 (Transition Day	30	82.5	NO	Cannot mathematically reach 86) ---
+293: AND GEIE direction NEUTRAL
+294: AND Historical win rate below 50%
+295: Add CAUTION flag to alert
+296: STEP 14 — RISK ENGINE
+297: Check daily risk used is below 2%
+298: Check consecutive losses below 3
+299: Check sector exposure limits
+300: Calculate position size with VIX adjustment
+301: Position Size Formula:
+302: plain
+303: Size = (Capital × 0.5%) ÷ max((Entry − Stop Loss), Entry × 0.001)
+304: Guard against division by zero:
+305: If (Entry − Stop Loss) < 0.1% of Entry price, use minimum stop distance = 0.1% of Entry price
+306: If still zero or negative, reject signal
+307: VIX Adjustment:
+308: VIX below 15: Full size (100%)
+309: VIX 15 to 20: 75% of size
+310: VIX above 20: 50% of size
+311: Maximum position cap: 10% of capital
+312: STEP 15 — BIG MONEY CONFLUENCE CHECK
+313: NEW in v4.6
+314: Check 5 Big Money signals (see Section 10 for details):
+315: Table
+316: Signal	Points	Source
+317: FII Buying Trend (3+ consecutive days)	+20	fii_dii_tracker table
+318: Bulk Deal Same Direction (last 15 min)	+20	bulk_deal_tracker table
+319: Unusual Options Activity (3x OI change)	+20	options_intelligence table
+320: Historical OB Zone Nearby (tested 3+ times)	+20	order_block_memory table
+321: RS Divergence Detected (>1.5% vs NIFTY)	+20	Calculated live
+322: Maximum	100	
+323: Rules:
+324: Big Money Score is CONTEXT only
+325: Weight in composite = 0%
+326: Never blocks signal
+327: Enhances Risk Grade only (see Section 15)
+328: STEP 16 — GENERATE ALERT
+329: If all 15 steps pass:
+330: Generate alert with Big Money section
+331: Apply Risk Grade upgrade if Big Money Score ≥ 80
+332: Send via Telegram
+333: Log to database
+334: Update audit trail
+335: Set valid_until based on regime (see Section 16)
+336: 6. MARKET REGIME ENGINE
+337: This determines 25% of total composite score.
+338: Table
+339: Regime	Regime Score	Max Composite	Alerts Allowed	Notes
+340: Trend Day	100	100.0	YES	ADX(14) on 15m > 25, NIFTY > EMA 20, AD Ratio > 1.5
+341: Expiry Day	70	92.5	YES	Weekly or Monthly expiry day
+342: Reversal Day	50	87.5	YES (HIGH only)	Gap at open > 0.8%, opening direction fails within 30 min, breadth reverses
+343: Transition Day	30	82.5	NO	Cannot mathematically reach 86
+344: Range Day	20	80.0	NO	ADX(14) on 15m < 20, NIFTY inside ATR range, AD Ratio 0.8-1.2
+345: Composite Score Calculation Example (Trend Day):
+346: Regime contribution: 100 × 25% = 25 points
+347: If all other engines score 100: 25 + 20 + 15 + 10 + 10 + 10 + 10 = 100
+348: 7. COMPOSITE SCORE & WEIGHTINGS
+349: Final Formula:
+350: plain
+351: Composite = (RegimeScore × 0.25) + (RS_Score × 0.20) + (RVOL_Score × 0.15) + 
+352:             (Breadth_Score × 0.10) + (Options_Score × 0.10) + (Sector_Score × 0.10) + 
+353:             (SMC_Quality_Score × 0.10)
+354: Big Money Score is NOT included in composite.
+355: 8. RISK GATES (Summary)
+356: Table
+357: Gate	Name	Fail Action
+358: 1	Liquidity	Reject signal
+359: 2	SMC Validation	Reject signal
+360: 3	Correlation	Reject signal
+361: 4	Earnings	Reject signal
+362: 5	Event Risk	Reject signal
+363: 6	Choppy Filter	Block ALL signals
+364: 7	Circuit Breaker	Pause 20 min
+365: 8	Volatility Regime	Reduce size or Pause
+366: 9. BIG MONEY DETECTION MODULE
+367: MODULE 1 — FII/DII TRACKER
+368: Purpose: Track institutional buying and selling to set daily market bias.
+369: Data Source: NSE website daily data. Perplexity API 8 AM scan.
+370: What to track:
+371: Daily FII net activity: Net Buyer or Net Seller (Amount in crores)
+372: Daily DII net activity: Net Buyer or Net Seller (Amount in crores)
+373: 5 day trend: Count consecutive FII buy/sell days
+374: Logic:
+375: FII buyer 3+ consecutive days = BULLISH BIAS for long signals
+376: FII seller 3+ consecutive days = BEARISH BIAS, suppress long signals
+377: FII buyer + DII buyer same day = STRONG BULLISH — extra confidence
+378: FII seller + DII seller same day = STRONG BEARISH — suppress longs
+379: Database: fii_dii_tracker table
+380: MODULE 2 — BLOCK AND BULK DEAL TRACKER
+381: Purpose: Detect large institutional transactions.
+382: Pre-Market Block Deals (8 AM): Already in Perplexity 8 AM scan. No change.
+383: Intraday Bulk Deal Monitor:
+384: URL: https://www.nseindia.com/market-data/bulk-deal
+385: Scan: Every 15 minutes during live market
+386: Detect: Any deal above ₹25 crore in NIFTY 50 stocks
+387: Logic:
+388: Bulk buy deal in stock X = Add INSTITUTIONAL BUY FLAG
+389: Bulk sell deal in stock X = Add INSTITUTIONAL SELL FLAG
+390: Database: bulk_deal_tracker table
+391: MODULE 3 — OPTIONS BIG MONEY DETECTOR
+392: 1. Unusual Options Activity Detector:
+================================================================================
+
+--- MATCH FOUND AT LINE 526 (negative: china_dumping, coal_cost_up, domestic_demand_down) ---
+476: All UNREVIEWED stocks get "ARC: UNREVIEWED" tag on alerts
+477: 12. GEIE ENGINE — GEMINI API
+478: Model: Gemini Flash
+479: Runs: Pre-market 08:05 AM only
+480: Cached: In Redis, valid all day
+481: Live scan: Uses cache only, no API call
+482: Purpose: Map global and India news to NIFTY 50 stock level impact.
+483: Updated Prompt (v4.6):
+484: Also analyze:
+485: FII trend for last 5 days
+486: Any major block deals yesterday
+487: Options OI concentration levels
+488: Where are the major support zones
+489: Output JSON format (mandatory):
+490: JSON
+491: {
+492:   "event_id": "GEIE-YYYY-MM-DD-001",
+493:   "timestamp": "IST timestamp",
+494:   "market_sentiment": "RISK_ON",
+495:   "stock_impacts": {
+496:     "TATASTEEL": {
+497:       "direction": "POSITIVE",
+498:       "magnitude": 2,
+499:       "reasons": ["China production cuts"],
+500:       "confidence": "HIGH",
+501:       "urgency": "INTRADAY"
+502:     }
+503:   },
+504:   "fii_5day_trend": "BUYING or SELLING or MIXED",
+505:   "institutional_bias": "BULLISH or BEARISH or NEUTRAL",
+506:   "key_support_from_options": "price level",
+507:   "key_resistance_from_options": "price level",
+508:   "top_beneficiaries": ["TATASTEEL", "JSWSTEEL"],
+509:   "top_losers": ["MARUTI", "TATAMOTORS"],
+510:   "geie_status": "ACTIVE"
+511: }
+512: Note: magnitude field (1-3 scale) is for human reference only. Only direction is used by the system. Weight in composite score = 0%.
+513: GEIE Failure Policy:
+514: If Gemini API times out or errors: Mark GEIE_STATUS as UNAVAILABLE
+515: Log to audit
+516: System continues normally
+517: NEVER block any alert
+518: Use last valid snapshot from Redis
+519: Snapshot valid for 60 minutes
+520: After 60 min with no valid snapshot: All stocks default to NEUTRAL
+521: 13. GEIE MASTER MAP — ALL 50 STOCKS
+522: [Same as v4.5 — no changes to content]
+523: Metals
+524: TATASTEEL:
+525: positive: steel_price_up, china_production_cuts, infra_spending_up, govt_stimulus
+526: negative: china_dumping, coal_cost_up, domestic_demand_down
+527: JSWSTEEL:
+528: positive: steel_price_up, china_production_cuts, infra_spending_up
+529: negative: china_dumping, coal_cost_up, iron_ore_cost_up
+530: HINDALCO:
+531: positive: aluminum_price_up, global_demand_up, auto_demand
+532: negative: aluminum_price_down, coal_cost_up, china_dumping
+533: Banking
+534: HDFCBANK:
+535: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+536: negative: rate_hike, npa_rise, regulatory_tightening
+537: ICICIBANK:
+538: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+539: negative: rate_hike, npa_rise, regulatory_tightening
+540: SBIN:
+541: positive: govt_spending, rate_cut, psu_revival, infra_projects
+542: negative: rate_hike, npa_rise, privatization_fear
+543: KOTAKBANK:
+544: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+545: negative: rate_hike, npa_rise
+546: AXISBANK:
+547: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+548: negative: rate_hike, npa_rise
+549: INDUSINDBK:
+550: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+551: negative: rate_hike, npa_rise, regulatory_tightening
+552: BAJFINANCE:
+553: positive: credit_growth, consumer_demand, rate_cut, fintech_growth
+554: negative: rate_hike, npa_rise, regulatory_tightening
+555: BAJAJFINSV:
+556: positive: insurance_growth, rate_cut
+557: negative: rate_hike, claims_spike
+558: IT
+559: INFY:
+560: positive: usd_strong, us_it_spend_up, digital_transformation, ai_adoption
+561: negative: usd_weak, us_recession, immigration_restrictions
+562: TCS:
+563: positive: usd_strong, us_it_spend_up, digital_transformation
+564: negative: usd_weak, us_recession, immigration_restrictions
+565: HCLTECH:
+566: positive: usd_strong, us_it_spend_up, digital_transformation
+567: negative: usd_weak, us_recession
+568: WIPRO:
+569: positive: usd_strong, us_it_spend_up
+570: negative: usd_weak, us_recession, margin_pressure
+571: TECHM:
+572: positive: usd_strong, us_it_spend_up, auto_tech
+573: negative: usd_weak, us_recession
+574: Energy
+575: RELIANCE:
+================================================================================
+
+--- MATCH FOUND AT LINE 531 (positive: aluminum_price_up, global_demand_up, auto_demand) ---
+481: Live scan: Uses cache only, no API call
+482: Purpose: Map global and India news to NIFTY 50 stock level impact.
+483: Updated Prompt (v4.6):
+484: Also analyze:
+485: FII trend for last 5 days
+486: Any major block deals yesterday
+487: Options OI concentration levels
+488: Where are the major support zones
+489: Output JSON format (mandatory):
+490: JSON
+491: {
+492:   "event_id": "GEIE-YYYY-MM-DD-001",
+493:   "timestamp": "IST timestamp",
+494:   "market_sentiment": "RISK_ON",
+495:   "stock_impacts": {
+496:     "TATASTEEL": {
+497:       "direction": "POSITIVE",
+498:       "magnitude": 2,
+499:       "reasons": ["China production cuts"],
+500:       "confidence": "HIGH",
+501:       "urgency": "INTRADAY"
+502:     }
+503:   },
+504:   "fii_5day_trend": "BUYING or SELLING or MIXED",
+505:   "institutional_bias": "BULLISH or BEARISH or NEUTRAL",
+506:   "key_support_from_options": "price level",
+507:   "key_resistance_from_options": "price level",
+508:   "top_beneficiaries": ["TATASTEEL", "JSWSTEEL"],
+509:   "top_losers": ["MARUTI", "TATAMOTORS"],
+510:   "geie_status": "ACTIVE"
+511: }
+512: Note: magnitude field (1-3 scale) is for human reference only. Only direction is used by the system. Weight in composite score = 0%.
+513: GEIE Failure Policy:
+514: If Gemini API times out or errors: Mark GEIE_STATUS as UNAVAILABLE
+515: Log to audit
+516: System continues normally
+517: NEVER block any alert
+518: Use last valid snapshot from Redis
+519: Snapshot valid for 60 minutes
+520: After 60 min with no valid snapshot: All stocks default to NEUTRAL
+521: 13. GEIE MASTER MAP — ALL 50 STOCKS
+522: [Same as v4.5 — no changes to content]
+523: Metals
+524: TATASTEEL:
+525: positive: steel_price_up, china_production_cuts, infra_spending_up, govt_stimulus
+526: negative: china_dumping, coal_cost_up, domestic_demand_down
+527: JSWSTEEL:
+528: positive: steel_price_up, china_production_cuts, infra_spending_up
+529: negative: china_dumping, coal_cost_up, iron_ore_cost_up
+530: HINDALCO:
+531: positive: aluminum_price_up, global_demand_up, auto_demand
+532: negative: aluminum_price_down, coal_cost_up, china_dumping
+533: Banking
+534: HDFCBANK:
+535: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+536: negative: rate_hike, npa_rise, regulatory_tightening
+537: ICICIBANK:
+538: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+539: negative: rate_hike, npa_rise, regulatory_tightening
+540: SBIN:
+541: positive: govt_spending, rate_cut, psu_revival, infra_projects
+542: negative: rate_hike, npa_rise, privatization_fear
+543: KOTAKBANK:
+544: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+545: negative: rate_hike, npa_rise
+546: AXISBANK:
+547: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+548: negative: rate_hike, npa_rise
+549: INDUSINDBK:
+550: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+551: negative: rate_hike, npa_rise, regulatory_tightening
+552: BAJFINANCE:
+553: positive: credit_growth, consumer_demand, rate_cut, fintech_growth
+554: negative: rate_hike, npa_rise, regulatory_tightening
+555: BAJAJFINSV:
+556: positive: insurance_growth, rate_cut
+557: negative: rate_hike, claims_spike
+558: IT
+559: INFY:
+560: positive: usd_strong, us_it_spend_up, digital_transformation, ai_adoption
+561: negative: usd_weak, us_recession, immigration_restrictions
+562: TCS:
+563: positive: usd_strong, us_it_spend_up, digital_transformation
+564: negative: usd_weak, us_recession, immigration_restrictions
+565: HCLTECH:
+566: positive: usd_strong, us_it_spend_up, digital_transformation
+567: negative: usd_weak, us_recession
+568: WIPRO:
+569: positive: usd_strong, us_it_spend_up
+570: negative: usd_weak, us_recession, margin_pressure
+571: TECHM:
+572: positive: usd_strong, us_it_spend_up, auto_tech
+573: negative: usd_weak, us_recession
+574: Energy
+575: RELIANCE:
+576: positive: refining_margins_up, energy_demand_growth, jio_growth
+577: negative: windfall_tax, oil_price_crash, regulatory_restrictions
+578: ONGC:
+579: positive: oil_price_up, govt_support
+580: negative: oil_price_crash, windfall_tax, subsidy_burden
+================================================================================
+
+--- MATCH FOUND AT LINE 553 (positive: credit_growth, consumer_demand, rate_cut, fintech_growth) ---
+503:   },
+504:   "fii_5day_trend": "BUYING or SELLING or MIXED",
+505:   "institutional_bias": "BULLISH or BEARISH or NEUTRAL",
+506:   "key_support_from_options": "price level",
+507:   "key_resistance_from_options": "price level",
+508:   "top_beneficiaries": ["TATASTEEL", "JSWSTEEL"],
+509:   "top_losers": ["MARUTI", "TATAMOTORS"],
+510:   "geie_status": "ACTIVE"
+511: }
+512: Note: magnitude field (1-3 scale) is for human reference only. Only direction is used by the system. Weight in composite score = 0%.
+513: GEIE Failure Policy:
+514: If Gemini API times out or errors: Mark GEIE_STATUS as UNAVAILABLE
+515: Log to audit
+516: System continues normally
+517: NEVER block any alert
+518: Use last valid snapshot from Redis
+519: Snapshot valid for 60 minutes
+520: After 60 min with no valid snapshot: All stocks default to NEUTRAL
+521: 13. GEIE MASTER MAP — ALL 50 STOCKS
+522: [Same as v4.5 — no changes to content]
+523: Metals
+524: TATASTEEL:
+525: positive: steel_price_up, china_production_cuts, infra_spending_up, govt_stimulus
+526: negative: china_dumping, coal_cost_up, domestic_demand_down
+527: JSWSTEEL:
+528: positive: steel_price_up, china_production_cuts, infra_spending_up
+529: negative: china_dumping, coal_cost_up, iron_ore_cost_up
+530: HINDALCO:
+531: positive: aluminum_price_up, global_demand_up, auto_demand
+532: negative: aluminum_price_down, coal_cost_up, china_dumping
+533: Banking
+534: HDFCBANK:
+535: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+536: negative: rate_hike, npa_rise, regulatory_tightening
+537: ICICIBANK:
+538: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+539: negative: rate_hike, npa_rise, regulatory_tightening
+540: SBIN:
+541: positive: govt_spending, rate_cut, psu_revival, infra_projects
+542: negative: rate_hike, npa_rise, privatization_fear
+543: KOTAKBANK:
+544: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+545: negative: rate_hike, npa_rise
+546: AXISBANK:
+547: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+548: negative: rate_hike, npa_rise
+549: INDUSINDBK:
+550: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+551: negative: rate_hike, npa_rise, regulatory_tightening
+552: BAJFINANCE:
+553: positive: credit_growth, consumer_demand, rate_cut, fintech_growth
+554: negative: rate_hike, npa_rise, regulatory_tightening
+555: BAJAJFINSV:
+556: positive: insurance_growth, rate_cut
+557: negative: rate_hike, claims_spike
+558: IT
+559: INFY:
+560: positive: usd_strong, us_it_spend_up, digital_transformation, ai_adoption
+561: negative: usd_weak, us_recession, immigration_restrictions
+562: TCS:
+563: positive: usd_strong, us_it_spend_up, digital_transformation
+564: negative: usd_weak, us_recession, immigration_restrictions
+565: HCLTECH:
+566: positive: usd_strong, us_it_spend_up, digital_transformation
+567: negative: usd_weak, us_recession
+568: WIPRO:
+569: positive: usd_strong, us_it_spend_up
+570: negative: usd_weak, us_recession, margin_pressure
+571: TECHM:
+572: positive: usd_strong, us_it_spend_up, auto_tech
+573: negative: usd_weak, us_recession
+574: Energy
+575: RELIANCE:
+576: positive: refining_margins_up, energy_demand_growth, jio_growth
+577: negative: windfall_tax, oil_price_crash, regulatory_restrictions
+578: ONGC:
+579: positive: oil_price_up, govt_support
+580: negative: oil_price_crash, windfall_tax, subsidy_burden
+581: BPCL:
+582: positive: crude_price_down, marketing_margin_up
+583: negative: crude_price_up, subsidy_burden
+584: NTPC:
+585: positive: power_demand_up, renewable_push, govt_spending
+586: negative: coal_shortage, regulatory_delay
+587: POWERGRID:
+588: positive: power_demand_up, transmission_expansion
+589: negative: regulatory_delay, land_acquisition_issues
+590: COALINDIA:
+591: positive: power_demand_up, coal_price_up
+592: negative: renewable_push, environmental_restrictions
+593: Auto
+594: MARUTI:
+595: positive: rate_cut, rural_demand_up, commodity_cost_down
+596: negative: steel_cost_up, fuel_price_up, rate_hike
+597: TATAMOTORS:
+598: positive: ev_adoption, jlr_recovery, commodity_cost_down
+599: negative: steel_cost_up, chip_shortage, uk_recession
+600: M&M:
+601: positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+================================================================================
+
+--- MATCH FOUND AT LINE 576 (positive: refining_margins_up, energy_demand_growth, jio_growth) ---
+526: negative: china_dumping, coal_cost_up, domestic_demand_down
+527: JSWSTEEL:
+528: positive: steel_price_up, china_production_cuts, infra_spending_up
+529: negative: china_dumping, coal_cost_up, iron_ore_cost_up
+530: HINDALCO:
+531: positive: aluminum_price_up, global_demand_up, auto_demand
+532: negative: aluminum_price_down, coal_cost_up, china_dumping
+533: Banking
+534: HDFCBANK:
+535: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+536: negative: rate_hike, npa_rise, regulatory_tightening
+537: ICICIBANK:
+538: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+539: negative: rate_hike, npa_rise, regulatory_tightening
+540: SBIN:
+541: positive: govt_spending, rate_cut, psu_revival, infra_projects
+542: negative: rate_hike, npa_rise, privatization_fear
+543: KOTAKBANK:
+544: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+545: negative: rate_hike, npa_rise
+546: AXISBANK:
+547: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+548: negative: rate_hike, npa_rise
+549: INDUSINDBK:
+550: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+551: negative: rate_hike, npa_rise, regulatory_tightening
+552: BAJFINANCE:
+553: positive: credit_growth, consumer_demand, rate_cut, fintech_growth
+554: negative: rate_hike, npa_rise, regulatory_tightening
+555: BAJAJFINSV:
+556: positive: insurance_growth, rate_cut
+557: negative: rate_hike, claims_spike
+558: IT
+559: INFY:
+560: positive: usd_strong, us_it_spend_up, digital_transformation, ai_adoption
+561: negative: usd_weak, us_recession, immigration_restrictions
+562: TCS:
+563: positive: usd_strong, us_it_spend_up, digital_transformation
+564: negative: usd_weak, us_recession, immigration_restrictions
+565: HCLTECH:
+566: positive: usd_strong, us_it_spend_up, digital_transformation
+567: negative: usd_weak, us_recession
+568: WIPRO:
+569: positive: usd_strong, us_it_spend_up
+570: negative: usd_weak, us_recession, margin_pressure
+571: TECHM:
+572: positive: usd_strong, us_it_spend_up, auto_tech
+573: negative: usd_weak, us_recession
+574: Energy
+575: RELIANCE:
+576: positive: refining_margins_up, energy_demand_growth, jio_growth
+577: negative: windfall_tax, oil_price_crash, regulatory_restrictions
+578: ONGC:
+579: positive: oil_price_up, govt_support
+580: negative: oil_price_crash, windfall_tax, subsidy_burden
+581: BPCL:
+582: positive: crude_price_down, marketing_margin_up
+583: negative: crude_price_up, subsidy_burden
+584: NTPC:
+585: positive: power_demand_up, renewable_push, govt_spending
+586: negative: coal_shortage, regulatory_delay
+587: POWERGRID:
+588: positive: power_demand_up, transmission_expansion
+589: negative: regulatory_delay, land_acquisition_issues
+590: COALINDIA:
+591: positive: power_demand_up, coal_price_up
+592: negative: renewable_push, environmental_restrictions
+593: Auto
+594: MARUTI:
+595: positive: rate_cut, rural_demand_up, commodity_cost_down
+596: negative: steel_cost_up, fuel_price_up, rate_hike
+597: TATAMOTORS:
+598: positive: ev_adoption, jlr_recovery, commodity_cost_down
+599: negative: steel_cost_up, chip_shortage, uk_recession
+600: M&M:
+601: positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+603: BAJAJ-AUTO:
+604: positive: two_wheeler_demand, export_growth, rate_cut
+605: negative: fuel_price_up, rate_hike, electric_competition
+606: HEROMOTOCO:
+607: positive: two_wheeler_demand, rural_growth, rate_cut
+608: negative: fuel_price_up, rate_hike, electric_competition
+609: EICHERMOT:
+610: positive: premium_bike_demand, export_growth, rate_cut
+611: negative: fuel_price_up, rate_hike, electric_competition
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+================================================================================
+
+--- MATCH FOUND AT LINE 585 (positive: power_demand_up, renewable_push, govt_spending) ---
+535: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+536: negative: rate_hike, npa_rise, regulatory_tightening
+537: ICICIBANK:
+538: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+539: negative: rate_hike, npa_rise, regulatory_tightening
+540: SBIN:
+541: positive: govt_spending, rate_cut, psu_revival, infra_projects
+542: negative: rate_hike, npa_rise, privatization_fear
+543: KOTAKBANK:
+544: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+545: negative: rate_hike, npa_rise
+546: AXISBANK:
+547: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+548: negative: rate_hike, npa_rise
+549: INDUSINDBK:
+550: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+551: negative: rate_hike, npa_rise, regulatory_tightening
+552: BAJFINANCE:
+553: positive: credit_growth, consumer_demand, rate_cut, fintech_growth
+554: negative: rate_hike, npa_rise, regulatory_tightening
+555: BAJAJFINSV:
+556: positive: insurance_growth, rate_cut
+557: negative: rate_hike, claims_spike
+558: IT
+559: INFY:
+560: positive: usd_strong, us_it_spend_up, digital_transformation, ai_adoption
+561: negative: usd_weak, us_recession, immigration_restrictions
+562: TCS:
+563: positive: usd_strong, us_it_spend_up, digital_transformation
+564: negative: usd_weak, us_recession, immigration_restrictions
+565: HCLTECH:
+566: positive: usd_strong, us_it_spend_up, digital_transformation
+567: negative: usd_weak, us_recession
+568: WIPRO:
+569: positive: usd_strong, us_it_spend_up
+570: negative: usd_weak, us_recession, margin_pressure
+571: TECHM:
+572: positive: usd_strong, us_it_spend_up, auto_tech
+573: negative: usd_weak, us_recession
+574: Energy
+575: RELIANCE:
+576: positive: refining_margins_up, energy_demand_growth, jio_growth
+577: negative: windfall_tax, oil_price_crash, regulatory_restrictions
+578: ONGC:
+579: positive: oil_price_up, govt_support
+580: negative: oil_price_crash, windfall_tax, subsidy_burden
+581: BPCL:
+582: positive: crude_price_down, marketing_margin_up
+583: negative: crude_price_up, subsidy_burden
+584: NTPC:
+585: positive: power_demand_up, renewable_push, govt_spending
+586: negative: coal_shortage, regulatory_delay
+587: POWERGRID:
+588: positive: power_demand_up, transmission_expansion
+589: negative: regulatory_delay, land_acquisition_issues
+590: COALINDIA:
+591: positive: power_demand_up, coal_price_up
+592: negative: renewable_push, environmental_restrictions
+593: Auto
+594: MARUTI:
+595: positive: rate_cut, rural_demand_up, commodity_cost_down
+596: negative: steel_cost_up, fuel_price_up, rate_hike
+597: TATAMOTORS:
+598: positive: ev_adoption, jlr_recovery, commodity_cost_down
+599: negative: steel_cost_up, chip_shortage, uk_recession
+600: M&M:
+601: positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+603: BAJAJ-AUTO:
+604: positive: two_wheeler_demand, export_growth, rate_cut
+605: negative: fuel_price_up, rate_hike, electric_competition
+606: HEROMOTOCO:
+607: positive: two_wheeler_demand, rural_growth, rate_cut
+608: negative: fuel_price_up, rate_hike, electric_competition
+609: EICHERMOT:
+610: positive: premium_bike_demand, export_growth, rate_cut
+611: negative: fuel_price_up, rate_hike, electric_competition
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+626: HINDUNILVR:
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+================================================================================
+
+--- MATCH FOUND AT LINE 588 (positive: power_demand_up, transmission_expansion) ---
+538: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+539: negative: rate_hike, npa_rise, regulatory_tightening
+540: SBIN:
+541: positive: govt_spending, rate_cut, psu_revival, infra_projects
+542: negative: rate_hike, npa_rise, privatization_fear
+543: KOTAKBANK:
+544: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+545: negative: rate_hike, npa_rise
+546: AXISBANK:
+547: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+548: negative: rate_hike, npa_rise
+549: INDUSINDBK:
+550: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+551: negative: rate_hike, npa_rise, regulatory_tightening
+552: BAJFINANCE:
+553: positive: credit_growth, consumer_demand, rate_cut, fintech_growth
+554: negative: rate_hike, npa_rise, regulatory_tightening
+555: BAJAJFINSV:
+556: positive: insurance_growth, rate_cut
+557: negative: rate_hike, claims_spike
+558: IT
+559: INFY:
+560: positive: usd_strong, us_it_spend_up, digital_transformation, ai_adoption
+561: negative: usd_weak, us_recession, immigration_restrictions
+562: TCS:
+563: positive: usd_strong, us_it_spend_up, digital_transformation
+564: negative: usd_weak, us_recession, immigration_restrictions
+565: HCLTECH:
+566: positive: usd_strong, us_it_spend_up, digital_transformation
+567: negative: usd_weak, us_recession
+568: WIPRO:
+569: positive: usd_strong, us_it_spend_up
+570: negative: usd_weak, us_recession, margin_pressure
+571: TECHM:
+572: positive: usd_strong, us_it_spend_up, auto_tech
+573: negative: usd_weak, us_recession
+574: Energy
+575: RELIANCE:
+576: positive: refining_margins_up, energy_demand_growth, jio_growth
+577: negative: windfall_tax, oil_price_crash, regulatory_restrictions
+578: ONGC:
+579: positive: oil_price_up, govt_support
+580: negative: oil_price_crash, windfall_tax, subsidy_burden
+581: BPCL:
+582: positive: crude_price_down, marketing_margin_up
+583: negative: crude_price_up, subsidy_burden
+584: NTPC:
+585: positive: power_demand_up, renewable_push, govt_spending
+586: negative: coal_shortage, regulatory_delay
+587: POWERGRID:
+588: positive: power_demand_up, transmission_expansion
+589: negative: regulatory_delay, land_acquisition_issues
+590: COALINDIA:
+591: positive: power_demand_up, coal_price_up
+592: negative: renewable_push, environmental_restrictions
+593: Auto
+594: MARUTI:
+595: positive: rate_cut, rural_demand_up, commodity_cost_down
+596: negative: steel_cost_up, fuel_price_up, rate_hike
+597: TATAMOTORS:
+598: positive: ev_adoption, jlr_recovery, commodity_cost_down
+599: negative: steel_cost_up, chip_shortage, uk_recession
+600: M&M:
+601: positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+603: BAJAJ-AUTO:
+604: positive: two_wheeler_demand, export_growth, rate_cut
+605: negative: fuel_price_up, rate_hike, electric_competition
+606: HEROMOTOCO:
+607: positive: two_wheeler_demand, rural_growth, rate_cut
+608: negative: fuel_price_up, rate_hike, electric_competition
+609: EICHERMOT:
+610: positive: premium_bike_demand, export_growth, rate_cut
+611: negative: fuel_price_up, rate_hike, electric_competition
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+626: HINDUNILVR:
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+635: BRITANNIA:
+636: positive: rural_demand_up, monsoon_good, inflation_down
+637: negative: inflation_up, input_cost_up
+================================================================================
+
+--- MATCH FOUND AT LINE 591 (positive: power_demand_up, coal_price_up) ---
+541: positive: govt_spending, rate_cut, psu_revival, infra_projects
+542: negative: rate_hike, npa_rise, privatization_fear
+543: KOTAKBANK:
+544: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+545: negative: rate_hike, npa_rise
+546: AXISBANK:
+547: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+548: negative: rate_hike, npa_rise
+549: INDUSINDBK:
+550: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+551: negative: rate_hike, npa_rise, regulatory_tightening
+552: BAJFINANCE:
+553: positive: credit_growth, consumer_demand, rate_cut, fintech_growth
+554: negative: rate_hike, npa_rise, regulatory_tightening
+555: BAJAJFINSV:
+556: positive: insurance_growth, rate_cut
+557: negative: rate_hike, claims_spike
+558: IT
+559: INFY:
+560: positive: usd_strong, us_it_spend_up, digital_transformation, ai_adoption
+561: negative: usd_weak, us_recession, immigration_restrictions
+562: TCS:
+563: positive: usd_strong, us_it_spend_up, digital_transformation
+564: negative: usd_weak, us_recession, immigration_restrictions
+565: HCLTECH:
+566: positive: usd_strong, us_it_spend_up, digital_transformation
+567: negative: usd_weak, us_recession
+568: WIPRO:
+569: positive: usd_strong, us_it_spend_up
+570: negative: usd_weak, us_recession, margin_pressure
+571: TECHM:
+572: positive: usd_strong, us_it_spend_up, auto_tech
+573: negative: usd_weak, us_recession
+574: Energy
+575: RELIANCE:
+576: positive: refining_margins_up, energy_demand_growth, jio_growth
+577: negative: windfall_tax, oil_price_crash, regulatory_restrictions
+578: ONGC:
+579: positive: oil_price_up, govt_support
+580: negative: oil_price_crash, windfall_tax, subsidy_burden
+581: BPCL:
+582: positive: crude_price_down, marketing_margin_up
+583: negative: crude_price_up, subsidy_burden
+584: NTPC:
+585: positive: power_demand_up, renewable_push, govt_spending
+586: negative: coal_shortage, regulatory_delay
+587: POWERGRID:
+588: positive: power_demand_up, transmission_expansion
+589: negative: regulatory_delay, land_acquisition_issues
+590: COALINDIA:
+591: positive: power_demand_up, coal_price_up
+592: negative: renewable_push, environmental_restrictions
+593: Auto
+594: MARUTI:
+595: positive: rate_cut, rural_demand_up, commodity_cost_down
+596: negative: steel_cost_up, fuel_price_up, rate_hike
+597: TATAMOTORS:
+598: positive: ev_adoption, jlr_recovery, commodity_cost_down
+599: negative: steel_cost_up, chip_shortage, uk_recession
+600: M&M:
+601: positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+603: BAJAJ-AUTO:
+604: positive: two_wheeler_demand, export_growth, rate_cut
+605: negative: fuel_price_up, rate_hike, electric_competition
+606: HEROMOTOCO:
+607: positive: two_wheeler_demand, rural_growth, rate_cut
+608: negative: fuel_price_up, rate_hike, electric_competition
+609: EICHERMOT:
+610: positive: premium_bike_demand, export_growth, rate_cut
+611: negative: fuel_price_up, rate_hike, electric_competition
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+626: HINDUNILVR:
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+635: BRITANNIA:
+636: positive: rural_demand_up, monsoon_good, inflation_down
+637: negative: inflation_up, input_cost_up
+638: TATACONSUM:
+639: positive: beverage_demand, premiumization
+640: negative: inflation_up, input_cost_up
+================================================================================
+
+--- MATCH FOUND AT LINE 595 (positive: rate_cut, rural_demand_up, commodity_cost_down) ---
+545: negative: rate_hike, npa_rise
+546: AXISBANK:
+547: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+548: negative: rate_hike, npa_rise
+549: INDUSINDBK:
+550: positive: gdp_growth, credit_growth, rate_cut, fii_inflow
+551: negative: rate_hike, npa_rise, regulatory_tightening
+552: BAJFINANCE:
+553: positive: credit_growth, consumer_demand, rate_cut, fintech_growth
+554: negative: rate_hike, npa_rise, regulatory_tightening
+555: BAJAJFINSV:
+556: positive: insurance_growth, rate_cut
+557: negative: rate_hike, claims_spike
+558: IT
+559: INFY:
+560: positive: usd_strong, us_it_spend_up, digital_transformation, ai_adoption
+561: negative: usd_weak, us_recession, immigration_restrictions
+562: TCS:
+563: positive: usd_strong, us_it_spend_up, digital_transformation
+564: negative: usd_weak, us_recession, immigration_restrictions
+565: HCLTECH:
+566: positive: usd_strong, us_it_spend_up, digital_transformation
+567: negative: usd_weak, us_recession
+568: WIPRO:
+569: positive: usd_strong, us_it_spend_up
+570: negative: usd_weak, us_recession, margin_pressure
+571: TECHM:
+572: positive: usd_strong, us_it_spend_up, auto_tech
+573: negative: usd_weak, us_recession
+574: Energy
+575: RELIANCE:
+576: positive: refining_margins_up, energy_demand_growth, jio_growth
+577: negative: windfall_tax, oil_price_crash, regulatory_restrictions
+578: ONGC:
+579: positive: oil_price_up, govt_support
+580: negative: oil_price_crash, windfall_tax, subsidy_burden
+581: BPCL:
+582: positive: crude_price_down, marketing_margin_up
+583: negative: crude_price_up, subsidy_burden
+584: NTPC:
+585: positive: power_demand_up, renewable_push, govt_spending
+586: negative: coal_shortage, regulatory_delay
+587: POWERGRID:
+588: positive: power_demand_up, transmission_expansion
+589: negative: regulatory_delay, land_acquisition_issues
+590: COALINDIA:
+591: positive: power_demand_up, coal_price_up
+592: negative: renewable_push, environmental_restrictions
+593: Auto
+594: MARUTI:
+595: positive: rate_cut, rural_demand_up, commodity_cost_down
+596: negative: steel_cost_up, fuel_price_up, rate_hike
+597: TATAMOTORS:
+598: positive: ev_adoption, jlr_recovery, commodity_cost_down
+599: negative: steel_cost_up, chip_shortage, uk_recession
+600: M&M:
+601: positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+603: BAJAJ-AUTO:
+604: positive: two_wheeler_demand, export_growth, rate_cut
+605: negative: fuel_price_up, rate_hike, electric_competition
+606: HEROMOTOCO:
+607: positive: two_wheeler_demand, rural_growth, rate_cut
+608: negative: fuel_price_up, rate_hike, electric_competition
+609: EICHERMOT:
+610: positive: premium_bike_demand, export_growth, rate_cut
+611: negative: fuel_price_up, rate_hike, electric_competition
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+626: HINDUNILVR:
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+635: BRITANNIA:
+636: positive: rural_demand_up, monsoon_good, inflation_down
+637: negative: inflation_up, input_cost_up
+638: TATACONSUM:
+639: positive: beverage_demand, premiumization
+640: negative: inflation_up, input_cost_up
+641: Infrastructure
+642: LT:
+643: positive: infra_spending, govt_capex, order_book_up
+644: negative: interest_rate_up, execution_delay
+================================================================================
+
+--- MATCH FOUND AT LINE 601 (positive: tractor_demand_up, rural_growth, suv_demand, rate_cut) ---
+551: negative: rate_hike, npa_rise, regulatory_tightening
+552: BAJFINANCE:
+553: positive: credit_growth, consumer_demand, rate_cut, fintech_growth
+554: negative: rate_hike, npa_rise, regulatory_tightening
+555: BAJAJFINSV:
+556: positive: insurance_growth, rate_cut
+557: negative: rate_hike, claims_spike
+558: IT
+559: INFY:
+560: positive: usd_strong, us_it_spend_up, digital_transformation, ai_adoption
+561: negative: usd_weak, us_recession, immigration_restrictions
+562: TCS:
+563: positive: usd_strong, us_it_spend_up, digital_transformation
+564: negative: usd_weak, us_recession, immigration_restrictions
+565: HCLTECH:
+566: positive: usd_strong, us_it_spend_up, digital_transformation
+567: negative: usd_weak, us_recession
+568: WIPRO:
+569: positive: usd_strong, us_it_spend_up
+570: negative: usd_weak, us_recession, margin_pressure
+571: TECHM:
+572: positive: usd_strong, us_it_spend_up, auto_tech
+573: negative: usd_weak, us_recession
+574: Energy
+575: RELIANCE:
+576: positive: refining_margins_up, energy_demand_growth, jio_growth
+577: negative: windfall_tax, oil_price_crash, regulatory_restrictions
+578: ONGC:
+579: positive: oil_price_up, govt_support
+580: negative: oil_price_crash, windfall_tax, subsidy_burden
+581: BPCL:
+582: positive: crude_price_down, marketing_margin_up
+583: negative: crude_price_up, subsidy_burden
+584: NTPC:
+585: positive: power_demand_up, renewable_push, govt_spending
+586: negative: coal_shortage, regulatory_delay
+587: POWERGRID:
+588: positive: power_demand_up, transmission_expansion
+589: negative: regulatory_delay, land_acquisition_issues
+590: COALINDIA:
+591: positive: power_demand_up, coal_price_up
+592: negative: renewable_push, environmental_restrictions
+593: Auto
+594: MARUTI:
+595: positive: rate_cut, rural_demand_up, commodity_cost_down
+596: negative: steel_cost_up, fuel_price_up, rate_hike
+597: TATAMOTORS:
+598: positive: ev_adoption, jlr_recovery, commodity_cost_down
+599: negative: steel_cost_up, chip_shortage, uk_recession
+600: M&M:
+601: positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+603: BAJAJ-AUTO:
+604: positive: two_wheeler_demand, export_growth, rate_cut
+605: negative: fuel_price_up, rate_hike, electric_competition
+606: HEROMOTOCO:
+607: positive: two_wheeler_demand, rural_growth, rate_cut
+608: negative: fuel_price_up, rate_hike, electric_competition
+609: EICHERMOT:
+610: positive: premium_bike_demand, export_growth, rate_cut
+611: negative: fuel_price_up, rate_hike, electric_competition
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+626: HINDUNILVR:
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+635: BRITANNIA:
+636: positive: rural_demand_up, monsoon_good, inflation_down
+637: negative: inflation_up, input_cost_up
+638: TATACONSUM:
+639: positive: beverage_demand, premiumization
+640: negative: inflation_up, input_cost_up
+641: Infrastructure
+642: LT:
+643: positive: infra_spending, govt_capex, order_book_up
+644: negative: interest_rate_up, execution_delay
+645: ULTRACEMCO:
+646: positive: infra_spending, housing_demand
+647: negative: fuel_cost_up, competition
+648: GRASIM:
+649: positive: cement_demand, textile_recovery
+650: negative: fuel_cost_up, cotton_price_up
+================================================================================
+
+--- MATCH FOUND AT LINE 604 (positive: two_wheeler_demand, export_growth, rate_cut) ---
+554: negative: rate_hike, npa_rise, regulatory_tightening
+555: BAJAJFINSV:
+556: positive: insurance_growth, rate_cut
+557: negative: rate_hike, claims_spike
+558: IT
+559: INFY:
+560: positive: usd_strong, us_it_spend_up, digital_transformation, ai_adoption
+561: negative: usd_weak, us_recession, immigration_restrictions
+562: TCS:
+563: positive: usd_strong, us_it_spend_up, digital_transformation
+564: negative: usd_weak, us_recession, immigration_restrictions
+565: HCLTECH:
+566: positive: usd_strong, us_it_spend_up, digital_transformation
+567: negative: usd_weak, us_recession
+568: WIPRO:
+569: positive: usd_strong, us_it_spend_up
+570: negative: usd_weak, us_recession, margin_pressure
+571: TECHM:
+572: positive: usd_strong, us_it_spend_up, auto_tech
+573: negative: usd_weak, us_recession
+574: Energy
+575: RELIANCE:
+576: positive: refining_margins_up, energy_demand_growth, jio_growth
+577: negative: windfall_tax, oil_price_crash, regulatory_restrictions
+578: ONGC:
+579: positive: oil_price_up, govt_support
+580: negative: oil_price_crash, windfall_tax, subsidy_burden
+581: BPCL:
+582: positive: crude_price_down, marketing_margin_up
+583: negative: crude_price_up, subsidy_burden
+584: NTPC:
+585: positive: power_demand_up, renewable_push, govt_spending
+586: negative: coal_shortage, regulatory_delay
+587: POWERGRID:
+588: positive: power_demand_up, transmission_expansion
+589: negative: regulatory_delay, land_acquisition_issues
+590: COALINDIA:
+591: positive: power_demand_up, coal_price_up
+592: negative: renewable_push, environmental_restrictions
+593: Auto
+594: MARUTI:
+595: positive: rate_cut, rural_demand_up, commodity_cost_down
+596: negative: steel_cost_up, fuel_price_up, rate_hike
+597: TATAMOTORS:
+598: positive: ev_adoption, jlr_recovery, commodity_cost_down
+599: negative: steel_cost_up, chip_shortage, uk_recession
+600: M&M:
+601: positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+603: BAJAJ-AUTO:
+604: positive: two_wheeler_demand, export_growth, rate_cut
+605: negative: fuel_price_up, rate_hike, electric_competition
+606: HEROMOTOCO:
+607: positive: two_wheeler_demand, rural_growth, rate_cut
+608: negative: fuel_price_up, rate_hike, electric_competition
+609: EICHERMOT:
+610: positive: premium_bike_demand, export_growth, rate_cut
+611: negative: fuel_price_up, rate_hike, electric_competition
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+626: HINDUNILVR:
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+635: BRITANNIA:
+636: positive: rural_demand_up, monsoon_good, inflation_down
+637: negative: inflation_up, input_cost_up
+638: TATACONSUM:
+639: positive: beverage_demand, premiumization
+640: negative: inflation_up, input_cost_up
+641: Infrastructure
+642: LT:
+643: positive: infra_spending, govt_capex, order_book_up
+644: negative: interest_rate_up, execution_delay
+645: ULTRACEMCO:
+646: positive: infra_spending, housing_demand
+647: negative: fuel_cost_up, competition
+648: GRASIM:
+649: positive: cement_demand, textile_recovery
+650: negative: fuel_cost_up, cotton_price_up
+651: ADANIENT:
+652: positive: infra_spending, cement_demand, energy_transition
+653: negative: regulatory_scrutiny, debt_concerns
+================================================================================
+
+--- MATCH FOUND AT LINE 607 (positive: two_wheeler_demand, rural_growth, rate_cut) ---
+557: negative: rate_hike, claims_spike
+558: IT
+559: INFY:
+560: positive: usd_strong, us_it_spend_up, digital_transformation, ai_adoption
+561: negative: usd_weak, us_recession, immigration_restrictions
+562: TCS:
+563: positive: usd_strong, us_it_spend_up, digital_transformation
+564: negative: usd_weak, us_recession, immigration_restrictions
+565: HCLTECH:
+566: positive: usd_strong, us_it_spend_up, digital_transformation
+567: negative: usd_weak, us_recession
+568: WIPRO:
+569: positive: usd_strong, us_it_spend_up
+570: negative: usd_weak, us_recession, margin_pressure
+571: TECHM:
+572: positive: usd_strong, us_it_spend_up, auto_tech
+573: negative: usd_weak, us_recession
+574: Energy
+575: RELIANCE:
+576: positive: refining_margins_up, energy_demand_growth, jio_growth
+577: negative: windfall_tax, oil_price_crash, regulatory_restrictions
+578: ONGC:
+579: positive: oil_price_up, govt_support
+580: negative: oil_price_crash, windfall_tax, subsidy_burden
+581: BPCL:
+582: positive: crude_price_down, marketing_margin_up
+583: negative: crude_price_up, subsidy_burden
+584: NTPC:
+585: positive: power_demand_up, renewable_push, govt_spending
+586: negative: coal_shortage, regulatory_delay
+587: POWERGRID:
+588: positive: power_demand_up, transmission_expansion
+589: negative: regulatory_delay, land_acquisition_issues
+590: COALINDIA:
+591: positive: power_demand_up, coal_price_up
+592: negative: renewable_push, environmental_restrictions
+593: Auto
+594: MARUTI:
+595: positive: rate_cut, rural_demand_up, commodity_cost_down
+596: negative: steel_cost_up, fuel_price_up, rate_hike
+597: TATAMOTORS:
+598: positive: ev_adoption, jlr_recovery, commodity_cost_down
+599: negative: steel_cost_up, chip_shortage, uk_recession
+600: M&M:
+601: positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+603: BAJAJ-AUTO:
+604: positive: two_wheeler_demand, export_growth, rate_cut
+605: negative: fuel_price_up, rate_hike, electric_competition
+606: HEROMOTOCO:
+607: positive: two_wheeler_demand, rural_growth, rate_cut
+608: negative: fuel_price_up, rate_hike, electric_competition
+609: EICHERMOT:
+610: positive: premium_bike_demand, export_growth, rate_cut
+611: negative: fuel_price_up, rate_hike, electric_competition
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+626: HINDUNILVR:
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+635: BRITANNIA:
+636: positive: rural_demand_up, monsoon_good, inflation_down
+637: negative: inflation_up, input_cost_up
+638: TATACONSUM:
+639: positive: beverage_demand, premiumization
+640: negative: inflation_up, input_cost_up
+641: Infrastructure
+642: LT:
+643: positive: infra_spending, govt_capex, order_book_up
+644: negative: interest_rate_up, execution_delay
+645: ULTRACEMCO:
+646: positive: infra_spending, housing_demand
+647: negative: fuel_cost_up, competition
+648: GRASIM:
+649: positive: cement_demand, textile_recovery
+650: negative: fuel_cost_up, cotton_price_up
+651: ADANIENT:
+652: positive: infra_spending, cement_demand, energy_transition
+653: negative: regulatory_scrutiny, debt_concerns
+654: ADANIPORTS:
+655: positive: trade_growth, port_expansion, logistics_boom
+656: negative: trade_war, regulatory_scrutiny
+================================================================================
+
+--- MATCH FOUND AT LINE 610 (positive: premium_bike_demand, export_growth, rate_cut) ---
+560: positive: usd_strong, us_it_spend_up, digital_transformation, ai_adoption
+561: negative: usd_weak, us_recession, immigration_restrictions
+562: TCS:
+563: positive: usd_strong, us_it_spend_up, digital_transformation
+564: negative: usd_weak, us_recession, immigration_restrictions
+565: HCLTECH:
+566: positive: usd_strong, us_it_spend_up, digital_transformation
+567: negative: usd_weak, us_recession
+568: WIPRO:
+569: positive: usd_strong, us_it_spend_up
+570: negative: usd_weak, us_recession, margin_pressure
+571: TECHM:
+572: positive: usd_strong, us_it_spend_up, auto_tech
+573: negative: usd_weak, us_recession
+574: Energy
+575: RELIANCE:
+576: positive: refining_margins_up, energy_demand_growth, jio_growth
+577: negative: windfall_tax, oil_price_crash, regulatory_restrictions
+578: ONGC:
+579: positive: oil_price_up, govt_support
+580: negative: oil_price_crash, windfall_tax, subsidy_burden
+581: BPCL:
+582: positive: crude_price_down, marketing_margin_up
+583: negative: crude_price_up, subsidy_burden
+584: NTPC:
+585: positive: power_demand_up, renewable_push, govt_spending
+586: negative: coal_shortage, regulatory_delay
+587: POWERGRID:
+588: positive: power_demand_up, transmission_expansion
+589: negative: regulatory_delay, land_acquisition_issues
+590: COALINDIA:
+591: positive: power_demand_up, coal_price_up
+592: negative: renewable_push, environmental_restrictions
+593: Auto
+594: MARUTI:
+595: positive: rate_cut, rural_demand_up, commodity_cost_down
+596: negative: steel_cost_up, fuel_price_up, rate_hike
+597: TATAMOTORS:
+598: positive: ev_adoption, jlr_recovery, commodity_cost_down
+599: negative: steel_cost_up, chip_shortage, uk_recession
+600: M&M:
+601: positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+603: BAJAJ-AUTO:
+604: positive: two_wheeler_demand, export_growth, rate_cut
+605: negative: fuel_price_up, rate_hike, electric_competition
+606: HEROMOTOCO:
+607: positive: two_wheeler_demand, rural_growth, rate_cut
+608: negative: fuel_price_up, rate_hike, electric_competition
+609: EICHERMOT:
+610: positive: premium_bike_demand, export_growth, rate_cut
+611: negative: fuel_price_up, rate_hike, electric_competition
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+626: HINDUNILVR:
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+635: BRITANNIA:
+636: positive: rural_demand_up, monsoon_good, inflation_down
+637: negative: inflation_up, input_cost_up
+638: TATACONSUM:
+639: positive: beverage_demand, premiumization
+640: negative: inflation_up, input_cost_up
+641: Infrastructure
+642: LT:
+643: positive: infra_spending, govt_capex, order_book_up
+644: negative: interest_rate_up, execution_delay
+645: ULTRACEMCO:
+646: positive: infra_spending, housing_demand
+647: negative: fuel_cost_up, competition
+648: GRASIM:
+649: positive: cement_demand, textile_recovery
+650: negative: fuel_cost_up, cotton_price_up
+651: ADANIENT:
+652: positive: infra_spending, cement_demand, energy_transition
+653: negative: regulatory_scrutiny, debt_concerns
+654: ADANIPORTS:
+655: positive: trade_growth, port_expansion, logistics_boom
+656: negative: trade_war, regulatory_scrutiny
+657: Others
+658: BHARTIARTL:
+659: positive: tariff_hike, 5g_rollout, data_consumption_up
+================================================================================
+
+--- MATCH FOUND AT LINE 614 (positive: fda_approval, patent_wins, generic_boom, us_demand_up) ---
+564: negative: usd_weak, us_recession, immigration_restrictions
+565: HCLTECH:
+566: positive: usd_strong, us_it_spend_up, digital_transformation
+567: negative: usd_weak, us_recession
+568: WIPRO:
+569: positive: usd_strong, us_it_spend_up
+570: negative: usd_weak, us_recession, margin_pressure
+571: TECHM:
+572: positive: usd_strong, us_it_spend_up, auto_tech
+573: negative: usd_weak, us_recession
+574: Energy
+575: RELIANCE:
+576: positive: refining_margins_up, energy_demand_growth, jio_growth
+577: negative: windfall_tax, oil_price_crash, regulatory_restrictions
+578: ONGC:
+579: positive: oil_price_up, govt_support
+580: negative: oil_price_crash, windfall_tax, subsidy_burden
+581: BPCL:
+582: positive: crude_price_down, marketing_margin_up
+583: negative: crude_price_up, subsidy_burden
+584: NTPC:
+585: positive: power_demand_up, renewable_push, govt_spending
+586: negative: coal_shortage, regulatory_delay
+587: POWERGRID:
+588: positive: power_demand_up, transmission_expansion
+589: negative: regulatory_delay, land_acquisition_issues
+590: COALINDIA:
+591: positive: power_demand_up, coal_price_up
+592: negative: renewable_push, environmental_restrictions
+593: Auto
+594: MARUTI:
+595: positive: rate_cut, rural_demand_up, commodity_cost_down
+596: negative: steel_cost_up, fuel_price_up, rate_hike
+597: TATAMOTORS:
+598: positive: ev_adoption, jlr_recovery, commodity_cost_down
+599: negative: steel_cost_up, chip_shortage, uk_recession
+600: M&M:
+601: positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+603: BAJAJ-AUTO:
+604: positive: two_wheeler_demand, export_growth, rate_cut
+605: negative: fuel_price_up, rate_hike, electric_competition
+606: HEROMOTOCO:
+607: positive: two_wheeler_demand, rural_growth, rate_cut
+608: negative: fuel_price_up, rate_hike, electric_competition
+609: EICHERMOT:
+610: positive: premium_bike_demand, export_growth, rate_cut
+611: negative: fuel_price_up, rate_hike, electric_competition
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+626: HINDUNILVR:
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+635: BRITANNIA:
+636: positive: rural_demand_up, monsoon_good, inflation_down
+637: negative: inflation_up, input_cost_up
+638: TATACONSUM:
+639: positive: beverage_demand, premiumization
+640: negative: inflation_up, input_cost_up
+641: Infrastructure
+642: LT:
+643: positive: infra_spending, govt_capex, order_book_up
+644: negative: interest_rate_up, execution_delay
+645: ULTRACEMCO:
+646: positive: infra_spending, housing_demand
+647: negative: fuel_cost_up, competition
+648: GRASIM:
+649: positive: cement_demand, textile_recovery
+650: negative: fuel_cost_up, cotton_price_up
+651: ADANIENT:
+652: positive: infra_spending, cement_demand, energy_transition
+653: negative: regulatory_scrutiny, debt_concerns
+654: ADANIPORTS:
+655: positive: trade_growth, port_expansion, logistics_boom
+656: negative: trade_war, regulatory_scrutiny
+657: Others
+658: BHARTIARTL:
+659: positive: tariff_hike, 5g_rollout, data_consumption_up
+660: negative: tariff_war, regulatory_fine
+661: ASIANPAINT:
+662: positive: housing_demand, monsoon_good, premiumization
+663: negative: input_cost_up, competition
+================================================================================
+
+--- MATCH FOUND AT LINE 620 (positive: fda_approval, generic_boom, api_demand) ---
+570: negative: usd_weak, us_recession, margin_pressure
+571: TECHM:
+572: positive: usd_strong, us_it_spend_up, auto_tech
+573: negative: usd_weak, us_recession
+574: Energy
+575: RELIANCE:
+576: positive: refining_margins_up, energy_demand_growth, jio_growth
+577: negative: windfall_tax, oil_price_crash, regulatory_restrictions
+578: ONGC:
+579: positive: oil_price_up, govt_support
+580: negative: oil_price_crash, windfall_tax, subsidy_burden
+581: BPCL:
+582: positive: crude_price_down, marketing_margin_up
+583: negative: crude_price_up, subsidy_burden
+584: NTPC:
+585: positive: power_demand_up, renewable_push, govt_spending
+586: negative: coal_shortage, regulatory_delay
+587: POWERGRID:
+588: positive: power_demand_up, transmission_expansion
+589: negative: regulatory_delay, land_acquisition_issues
+590: COALINDIA:
+591: positive: power_demand_up, coal_price_up
+592: negative: renewable_push, environmental_restrictions
+593: Auto
+594: MARUTI:
+595: positive: rate_cut, rural_demand_up, commodity_cost_down
+596: negative: steel_cost_up, fuel_price_up, rate_hike
+597: TATAMOTORS:
+598: positive: ev_adoption, jlr_recovery, commodity_cost_down
+599: negative: steel_cost_up, chip_shortage, uk_recession
+600: M&M:
+601: positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+603: BAJAJ-AUTO:
+604: positive: two_wheeler_demand, export_growth, rate_cut
+605: negative: fuel_price_up, rate_hike, electric_competition
+606: HEROMOTOCO:
+607: positive: two_wheeler_demand, rural_growth, rate_cut
+608: negative: fuel_price_up, rate_hike, electric_competition
+609: EICHERMOT:
+610: positive: premium_bike_demand, export_growth, rate_cut
+611: negative: fuel_price_up, rate_hike, electric_competition
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+626: HINDUNILVR:
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+635: BRITANNIA:
+636: positive: rural_demand_up, monsoon_good, inflation_down
+637: negative: inflation_up, input_cost_up
+638: TATACONSUM:
+639: positive: beverage_demand, premiumization
+640: negative: inflation_up, input_cost_up
+641: Infrastructure
+642: LT:
+643: positive: infra_spending, govt_capex, order_book_up
+644: negative: interest_rate_up, execution_delay
+645: ULTRACEMCO:
+646: positive: infra_spending, housing_demand
+647: negative: fuel_cost_up, competition
+648: GRASIM:
+649: positive: cement_demand, textile_recovery
+650: negative: fuel_cost_up, cotton_price_up
+651: ADANIENT:
+652: positive: infra_spending, cement_demand, energy_transition
+653: negative: regulatory_scrutiny, debt_concerns
+654: ADANIPORTS:
+655: positive: trade_growth, port_expansion, logistics_boom
+656: negative: trade_war, regulatory_scrutiny
+657: Others
+658: BHARTIARTL:
+659: positive: tariff_hike, 5g_rollout, data_consumption_up
+660: negative: tariff_war, regulatory_fine
+661: ASIANPAINT:
+662: positive: housing_demand, monsoon_good, premiumization
+663: negative: input_cost_up, competition
+664: TITAN:
+665: positive: gold_price_up, wedding_season, premiumization
+666: negative: gold_price_crash, competition
+667: APOLLOHOSP:
+668: positive: healthcare_spending, insurance_penetration
+669: negative: regulatory_price_cap, input_cost_up
+================================================================================
+
+--- MATCH FOUND AT LINE 623 (positive: api_demand, china_alternative, fda_approval) ---
+573: negative: usd_weak, us_recession
+574: Energy
+575: RELIANCE:
+576: positive: refining_margins_up, energy_demand_growth, jio_growth
+577: negative: windfall_tax, oil_price_crash, regulatory_restrictions
+578: ONGC:
+579: positive: oil_price_up, govt_support
+580: negative: oil_price_crash, windfall_tax, subsidy_burden
+581: BPCL:
+582: positive: crude_price_down, marketing_margin_up
+583: negative: crude_price_up, subsidy_burden
+584: NTPC:
+585: positive: power_demand_up, renewable_push, govt_spending
+586: negative: coal_shortage, regulatory_delay
+587: POWERGRID:
+588: positive: power_demand_up, transmission_expansion
+589: negative: regulatory_delay, land_acquisition_issues
+590: COALINDIA:
+591: positive: power_demand_up, coal_price_up
+592: negative: renewable_push, environmental_restrictions
+593: Auto
+594: MARUTI:
+595: positive: rate_cut, rural_demand_up, commodity_cost_down
+596: negative: steel_cost_up, fuel_price_up, rate_hike
+597: TATAMOTORS:
+598: positive: ev_adoption, jlr_recovery, commodity_cost_down
+599: negative: steel_cost_up, chip_shortage, uk_recession
+600: M&M:
+601: positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+603: BAJAJ-AUTO:
+604: positive: two_wheeler_demand, export_growth, rate_cut
+605: negative: fuel_price_up, rate_hike, electric_competition
+606: HEROMOTOCO:
+607: positive: two_wheeler_demand, rural_growth, rate_cut
+608: negative: fuel_price_up, rate_hike, electric_competition
+609: EICHERMOT:
+610: positive: premium_bike_demand, export_growth, rate_cut
+611: negative: fuel_price_up, rate_hike, electric_competition
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+626: HINDUNILVR:
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+635: BRITANNIA:
+636: positive: rural_demand_up, monsoon_good, inflation_down
+637: negative: inflation_up, input_cost_up
+638: TATACONSUM:
+639: positive: beverage_demand, premiumization
+640: negative: inflation_up, input_cost_up
+641: Infrastructure
+642: LT:
+643: positive: infra_spending, govt_capex, order_book_up
+644: negative: interest_rate_up, execution_delay
+645: ULTRACEMCO:
+646: positive: infra_spending, housing_demand
+647: negative: fuel_cost_up, competition
+648: GRASIM:
+649: positive: cement_demand, textile_recovery
+650: negative: fuel_cost_up, cotton_price_up
+651: ADANIENT:
+652: positive: infra_spending, cement_demand, energy_transition
+653: negative: regulatory_scrutiny, debt_concerns
+654: ADANIPORTS:
+655: positive: trade_growth, port_expansion, logistics_boom
+656: negative: trade_war, regulatory_scrutiny
+657: Others
+658: BHARTIARTL:
+659: positive: tariff_hike, 5g_rollout, data_consumption_up
+660: negative: tariff_war, regulatory_fine
+661: ASIANPAINT:
+662: positive: housing_demand, monsoon_good, premiumization
+663: negative: input_cost_up, competition
+664: TITAN:
+665: positive: gold_price_up, wedding_season, premiumization
+666: negative: gold_price_crash, competition
+667: APOLLOHOSP:
+668: positive: healthcare_spending, insurance_penetration
+669: negative: regulatory_price_cap, input_cost_up
+670: SBILIFE:
+671: positive: insurance_penetration, rate_cut, vnb_margin_up
+672: negative: rate_hike, claims_spike
+================================================================================
+
+--- MATCH FOUND AT LINE 627 (positive: rural_demand_up, monsoon_good, premiumization) ---
+577: negative: windfall_tax, oil_price_crash, regulatory_restrictions
+578: ONGC:
+579: positive: oil_price_up, govt_support
+580: negative: oil_price_crash, windfall_tax, subsidy_burden
+581: BPCL:
+582: positive: crude_price_down, marketing_margin_up
+583: negative: crude_price_up, subsidy_burden
+584: NTPC:
+585: positive: power_demand_up, renewable_push, govt_spending
+586: negative: coal_shortage, regulatory_delay
+587: POWERGRID:
+588: positive: power_demand_up, transmission_expansion
+589: negative: regulatory_delay, land_acquisition_issues
+590: COALINDIA:
+591: positive: power_demand_up, coal_price_up
+592: negative: renewable_push, environmental_restrictions
+593: Auto
+594: MARUTI:
+595: positive: rate_cut, rural_demand_up, commodity_cost_down
+596: negative: steel_cost_up, fuel_price_up, rate_hike
+597: TATAMOTORS:
+598: positive: ev_adoption, jlr_recovery, commodity_cost_down
+599: negative: steel_cost_up, chip_shortage, uk_recession
+600: M&M:
+601: positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+603: BAJAJ-AUTO:
+604: positive: two_wheeler_demand, export_growth, rate_cut
+605: negative: fuel_price_up, rate_hike, electric_competition
+606: HEROMOTOCO:
+607: positive: two_wheeler_demand, rural_growth, rate_cut
+608: negative: fuel_price_up, rate_hike, electric_competition
+609: EICHERMOT:
+610: positive: premium_bike_demand, export_growth, rate_cut
+611: negative: fuel_price_up, rate_hike, electric_competition
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+626: HINDUNILVR:
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+635: BRITANNIA:
+636: positive: rural_demand_up, monsoon_good, inflation_down
+637: negative: inflation_up, input_cost_up
+638: TATACONSUM:
+639: positive: beverage_demand, premiumization
+640: negative: inflation_up, input_cost_up
+641: Infrastructure
+642: LT:
+643: positive: infra_spending, govt_capex, order_book_up
+644: negative: interest_rate_up, execution_delay
+645: ULTRACEMCO:
+646: positive: infra_spending, housing_demand
+647: negative: fuel_cost_up, competition
+648: GRASIM:
+649: positive: cement_demand, textile_recovery
+650: negative: fuel_cost_up, cotton_price_up
+651: ADANIENT:
+652: positive: infra_spending, cement_demand, energy_transition
+653: negative: regulatory_scrutiny, debt_concerns
+654: ADANIPORTS:
+655: positive: trade_growth, port_expansion, logistics_boom
+656: negative: trade_war, regulatory_scrutiny
+657: Others
+658: BHARTIARTL:
+659: positive: tariff_hike, 5g_rollout, data_consumption_up
+660: negative: tariff_war, regulatory_fine
+661: ASIANPAINT:
+662: positive: housing_demand, monsoon_good, premiumization
+663: negative: input_cost_up, competition
+664: TITAN:
+665: positive: gold_price_up, wedding_season, premiumization
+666: negative: gold_price_crash, competition
+667: APOLLOHOSP:
+668: positive: healthcare_spending, insurance_penetration
+669: negative: regulatory_price_cap, input_cost_up
+670: SBILIFE:
+671: positive: insurance_penetration, rate_cut, vnb_margin_up
+672: negative: rate_hike, claims_spike
+673: HDFCLIFE:
+674: positive: insurance_penetration, rate_cut, vnb_margin_up
+675: negative: rate_hike, claims_spike
+676: UPL:
+================================================================================
+
+--- MATCH FOUND AT LINE 633 (positive: urban_demand_up, premiumization) ---
+583: negative: crude_price_up, subsidy_burden
+584: NTPC:
+585: positive: power_demand_up, renewable_push, govt_spending
+586: negative: coal_shortage, regulatory_delay
+587: POWERGRID:
+588: positive: power_demand_up, transmission_expansion
+589: negative: regulatory_delay, land_acquisition_issues
+590: COALINDIA:
+591: positive: power_demand_up, coal_price_up
+592: negative: renewable_push, environmental_restrictions
+593: Auto
+594: MARUTI:
+595: positive: rate_cut, rural_demand_up, commodity_cost_down
+596: negative: steel_cost_up, fuel_price_up, rate_hike
+597: TATAMOTORS:
+598: positive: ev_adoption, jlr_recovery, commodity_cost_down
+599: negative: steel_cost_up, chip_shortage, uk_recession
+600: M&M:
+601: positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+603: BAJAJ-AUTO:
+604: positive: two_wheeler_demand, export_growth, rate_cut
+605: negative: fuel_price_up, rate_hike, electric_competition
+606: HEROMOTOCO:
+607: positive: two_wheeler_demand, rural_growth, rate_cut
+608: negative: fuel_price_up, rate_hike, electric_competition
+609: EICHERMOT:
+610: positive: premium_bike_demand, export_growth, rate_cut
+611: negative: fuel_price_up, rate_hike, electric_competition
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+626: HINDUNILVR:
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+635: BRITANNIA:
+636: positive: rural_demand_up, monsoon_good, inflation_down
+637: negative: inflation_up, input_cost_up
+638: TATACONSUM:
+639: positive: beverage_demand, premiumization
+640: negative: inflation_up, input_cost_up
+641: Infrastructure
+642: LT:
+643: positive: infra_spending, govt_capex, order_book_up
+644: negative: interest_rate_up, execution_delay
+645: ULTRACEMCO:
+646: positive: infra_spending, housing_demand
+647: negative: fuel_cost_up, competition
+648: GRASIM:
+649: positive: cement_demand, textile_recovery
+650: negative: fuel_cost_up, cotton_price_up
+651: ADANIENT:
+652: positive: infra_spending, cement_demand, energy_transition
+653: negative: regulatory_scrutiny, debt_concerns
+654: ADANIPORTS:
+655: positive: trade_growth, port_expansion, logistics_boom
+656: negative: trade_war, regulatory_scrutiny
+657: Others
+658: BHARTIARTL:
+659: positive: tariff_hike, 5g_rollout, data_consumption_up
+660: negative: tariff_war, regulatory_fine
+661: ASIANPAINT:
+662: positive: housing_demand, monsoon_good, premiumization
+663: negative: input_cost_up, competition
+664: TITAN:
+665: positive: gold_price_up, wedding_season, premiumization
+666: negative: gold_price_crash, competition
+667: APOLLOHOSP:
+668: positive: healthcare_spending, insurance_penetration
+669: negative: regulatory_price_cap, input_cost_up
+670: SBILIFE:
+671: positive: insurance_penetration, rate_cut, vnb_margin_up
+672: negative: rate_hike, claims_spike
+673: HDFCLIFE:
+674: positive: insurance_penetration, rate_cut, vnb_margin_up
+675: negative: rate_hike, claims_spike
+676: UPL:
+677: positive: monsoon_good, global_agri_demand
+678: negative: monsoon_bad, generic_competition
+679: 14. TELEGRAM ALERT FORMAT
+680: Every alert must look exactly like this:
+681: plain
+682: 🚨 IIIS SIGNAL ALERT
+================================================================================
+
+--- MATCH FOUND AT LINE 636 (positive: rural_demand_up, monsoon_good, inflation_down) ---
+586: negative: coal_shortage, regulatory_delay
+587: POWERGRID:
+588: positive: power_demand_up, transmission_expansion
+589: negative: regulatory_delay, land_acquisition_issues
+590: COALINDIA:
+591: positive: power_demand_up, coal_price_up
+592: negative: renewable_push, environmental_restrictions
+593: Auto
+594: MARUTI:
+595: positive: rate_cut, rural_demand_up, commodity_cost_down
+596: negative: steel_cost_up, fuel_price_up, rate_hike
+597: TATAMOTORS:
+598: positive: ev_adoption, jlr_recovery, commodity_cost_down
+599: negative: steel_cost_up, chip_shortage, uk_recession
+600: M&M:
+601: positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+603: BAJAJ-AUTO:
+604: positive: two_wheeler_demand, export_growth, rate_cut
+605: negative: fuel_price_up, rate_hike, electric_competition
+606: HEROMOTOCO:
+607: positive: two_wheeler_demand, rural_growth, rate_cut
+608: negative: fuel_price_up, rate_hike, electric_competition
+609: EICHERMOT:
+610: positive: premium_bike_demand, export_growth, rate_cut
+611: negative: fuel_price_up, rate_hike, electric_competition
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+626: HINDUNILVR:
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+635: BRITANNIA:
+636: positive: rural_demand_up, monsoon_good, inflation_down
+637: negative: inflation_up, input_cost_up
+638: TATACONSUM:
+639: positive: beverage_demand, premiumization
+640: negative: inflation_up, input_cost_up
+641: Infrastructure
+642: LT:
+643: positive: infra_spending, govt_capex, order_book_up
+644: negative: interest_rate_up, execution_delay
+645: ULTRACEMCO:
+646: positive: infra_spending, housing_demand
+647: negative: fuel_cost_up, competition
+648: GRASIM:
+649: positive: cement_demand, textile_recovery
+650: negative: fuel_cost_up, cotton_price_up
+651: ADANIENT:
+652: positive: infra_spending, cement_demand, energy_transition
+653: negative: regulatory_scrutiny, debt_concerns
+654: ADANIPORTS:
+655: positive: trade_growth, port_expansion, logistics_boom
+656: negative: trade_war, regulatory_scrutiny
+657: Others
+658: BHARTIARTL:
+659: positive: tariff_hike, 5g_rollout, data_consumption_up
+660: negative: tariff_war, regulatory_fine
+661: ASIANPAINT:
+662: positive: housing_demand, monsoon_good, premiumization
+663: negative: input_cost_up, competition
+664: TITAN:
+665: positive: gold_price_up, wedding_season, premiumization
+666: negative: gold_price_crash, competition
+667: APOLLOHOSP:
+668: positive: healthcare_spending, insurance_penetration
+669: negative: regulatory_price_cap, input_cost_up
+670: SBILIFE:
+671: positive: insurance_penetration, rate_cut, vnb_margin_up
+672: negative: rate_hike, claims_spike
+673: HDFCLIFE:
+674: positive: insurance_penetration, rate_cut, vnb_margin_up
+675: negative: rate_hike, claims_spike
+676: UPL:
+677: positive: monsoon_good, global_agri_demand
+678: negative: monsoon_bad, generic_competition
+679: 14. TELEGRAM ALERT FORMAT
+680: Every alert must look exactly like this:
+681: plain
+682: 🚨 IIIS SIGNAL ALERT
+683: 
+684: Signal ID: IIIS-YYYY-MM-DD-NNN
+685: Time: HH:MM AM IST
+================================================================================
+
+--- MATCH FOUND AT LINE 639 (positive: beverage_demand, premiumization) ---
+589: negative: regulatory_delay, land_acquisition_issues
+590: COALINDIA:
+591: positive: power_demand_up, coal_price_up
+592: negative: renewable_push, environmental_restrictions
+593: Auto
+594: MARUTI:
+595: positive: rate_cut, rural_demand_up, commodity_cost_down
+596: negative: steel_cost_up, fuel_price_up, rate_hike
+597: TATAMOTORS:
+598: positive: ev_adoption, jlr_recovery, commodity_cost_down
+599: negative: steel_cost_up, chip_shortage, uk_recession
+600: M&M:
+601: positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+603: BAJAJ-AUTO:
+604: positive: two_wheeler_demand, export_growth, rate_cut
+605: negative: fuel_price_up, rate_hike, electric_competition
+606: HEROMOTOCO:
+607: positive: two_wheeler_demand, rural_growth, rate_cut
+608: negative: fuel_price_up, rate_hike, electric_competition
+609: EICHERMOT:
+610: positive: premium_bike_demand, export_growth, rate_cut
+611: negative: fuel_price_up, rate_hike, electric_competition
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+626: HINDUNILVR:
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+635: BRITANNIA:
+636: positive: rural_demand_up, monsoon_good, inflation_down
+637: negative: inflation_up, input_cost_up
+638: TATACONSUM:
+639: positive: beverage_demand, premiumization
+640: negative: inflation_up, input_cost_up
+641: Infrastructure
+642: LT:
+643: positive: infra_spending, govt_capex, order_book_up
+644: negative: interest_rate_up, execution_delay
+645: ULTRACEMCO:
+646: positive: infra_spending, housing_demand
+647: negative: fuel_cost_up, competition
+648: GRASIM:
+649: positive: cement_demand, textile_recovery
+650: negative: fuel_cost_up, cotton_price_up
+651: ADANIENT:
+652: positive: infra_spending, cement_demand, energy_transition
+653: negative: regulatory_scrutiny, debt_concerns
+654: ADANIPORTS:
+655: positive: trade_growth, port_expansion, logistics_boom
+656: negative: trade_war, regulatory_scrutiny
+657: Others
+658: BHARTIARTL:
+659: positive: tariff_hike, 5g_rollout, data_consumption_up
+660: negative: tariff_war, regulatory_fine
+661: ASIANPAINT:
+662: positive: housing_demand, monsoon_good, premiumization
+663: negative: input_cost_up, competition
+664: TITAN:
+665: positive: gold_price_up, wedding_season, premiumization
+666: negative: gold_price_crash, competition
+667: APOLLOHOSP:
+668: positive: healthcare_spending, insurance_penetration
+669: negative: regulatory_price_cap, input_cost_up
+670: SBILIFE:
+671: positive: insurance_penetration, rate_cut, vnb_margin_up
+672: negative: rate_hike, claims_spike
+673: HDFCLIFE:
+674: positive: insurance_penetration, rate_cut, vnb_margin_up
+675: negative: rate_hike, claims_spike
+676: UPL:
+677: positive: monsoon_good, global_agri_demand
+678: negative: monsoon_bad, generic_competition
+679: 14. TELEGRAM ALERT FORMAT
+680: Every alert must look exactly like this:
+681: plain
+682: 🚨 IIIS SIGNAL ALERT
+683: 
+684: Signal ID: IIIS-YYYY-MM-DD-NNN
+685: Time: HH:MM AM IST
+686: Valid Until: HH:MM AM IST (calculated from regime rules, Section 16)
+687: 
+688: Stock: SYMBOL
+================================================================================
+
+--- MATCH FOUND AT LINE 646 (positive: infra_spending, housing_demand) ---
+596: negative: steel_cost_up, fuel_price_up, rate_hike
+597: TATAMOTORS:
+598: positive: ev_adoption, jlr_recovery, commodity_cost_down
+599: negative: steel_cost_up, chip_shortage, uk_recession
+600: M&M:
+601: positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+603: BAJAJ-AUTO:
+604: positive: two_wheeler_demand, export_growth, rate_cut
+605: negative: fuel_price_up, rate_hike, electric_competition
+606: HEROMOTOCO:
+607: positive: two_wheeler_demand, rural_growth, rate_cut
+608: negative: fuel_price_up, rate_hike, electric_competition
+609: EICHERMOT:
+610: positive: premium_bike_demand, export_growth, rate_cut
+611: negative: fuel_price_up, rate_hike, electric_competition
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+626: HINDUNILVR:
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+635: BRITANNIA:
+636: positive: rural_demand_up, monsoon_good, inflation_down
+637: negative: inflation_up, input_cost_up
+638: TATACONSUM:
+639: positive: beverage_demand, premiumization
+640: negative: inflation_up, input_cost_up
+641: Infrastructure
+642: LT:
+643: positive: infra_spending, govt_capex, order_book_up
+644: negative: interest_rate_up, execution_delay
+645: ULTRACEMCO:
+646: positive: infra_spending, housing_demand
+647: negative: fuel_cost_up, competition
+648: GRASIM:
+649: positive: cement_demand, textile_recovery
+650: negative: fuel_cost_up, cotton_price_up
+651: ADANIENT:
+652: positive: infra_spending, cement_demand, energy_transition
+653: negative: regulatory_scrutiny, debt_concerns
+654: ADANIPORTS:
+655: positive: trade_growth, port_expansion, logistics_boom
+656: negative: trade_war, regulatory_scrutiny
+657: Others
+658: BHARTIARTL:
+659: positive: tariff_hike, 5g_rollout, data_consumption_up
+660: negative: tariff_war, regulatory_fine
+661: ASIANPAINT:
+662: positive: housing_demand, monsoon_good, premiumization
+663: negative: input_cost_up, competition
+664: TITAN:
+665: positive: gold_price_up, wedding_season, premiumization
+666: negative: gold_price_crash, competition
+667: APOLLOHOSP:
+668: positive: healthcare_spending, insurance_penetration
+669: negative: regulatory_price_cap, input_cost_up
+670: SBILIFE:
+671: positive: insurance_penetration, rate_cut, vnb_margin_up
+672: negative: rate_hike, claims_spike
+673: HDFCLIFE:
+674: positive: insurance_penetration, rate_cut, vnb_margin_up
+675: negative: rate_hike, claims_spike
+676: UPL:
+677: positive: monsoon_good, global_agri_demand
+678: negative: monsoon_bad, generic_competition
+679: 14. TELEGRAM ALERT FORMAT
+680: Every alert must look exactly like this:
+681: plain
+682: 🚨 IIIS SIGNAL ALERT
+683: 
+684: Signal ID: IIIS-YYYY-MM-DD-NNN
+685: Time: HH:MM AM IST
+686: Valid Until: HH:MM AM IST (calculated from regime rules, Section 16)
+687: 
+688: Stock: SYMBOL
+689: Direction: LONG or SHORT
+690: Score: XX out of 100
+691: Confidence: HIGH or MEDIUM or LOW
+692: Risk Grade: A+ or A or B+ or B or C
+693: 
+694: Market Context:
+695: Regime: [Trend Day / Expiry Day / Reversal Day / Transition Day / Range Day]
+================================================================================
+
+--- MATCH FOUND AT LINE 649 (positive: cement_demand, textile_recovery) ---
+599: negative: steel_cost_up, chip_shortage, uk_recession
+600: M&M:
+601: positive: tractor_demand_up, rural_growth, suv_demand, rate_cut
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+603: BAJAJ-AUTO:
+604: positive: two_wheeler_demand, export_growth, rate_cut
+605: negative: fuel_price_up, rate_hike, electric_competition
+606: HEROMOTOCO:
+607: positive: two_wheeler_demand, rural_growth, rate_cut
+608: negative: fuel_price_up, rate_hike, electric_competition
+609: EICHERMOT:
+610: positive: premium_bike_demand, export_growth, rate_cut
+611: negative: fuel_price_up, rate_hike, electric_competition
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+626: HINDUNILVR:
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+635: BRITANNIA:
+636: positive: rural_demand_up, monsoon_good, inflation_down
+637: negative: inflation_up, input_cost_up
+638: TATACONSUM:
+639: positive: beverage_demand, premiumization
+640: negative: inflation_up, input_cost_up
+641: Infrastructure
+642: LT:
+643: positive: infra_spending, govt_capex, order_book_up
+644: negative: interest_rate_up, execution_delay
+645: ULTRACEMCO:
+646: positive: infra_spending, housing_demand
+647: negative: fuel_cost_up, competition
+648: GRASIM:
+649: positive: cement_demand, textile_recovery
+650: negative: fuel_cost_up, cotton_price_up
+651: ADANIENT:
+652: positive: infra_spending, cement_demand, energy_transition
+653: negative: regulatory_scrutiny, debt_concerns
+654: ADANIPORTS:
+655: positive: trade_growth, port_expansion, logistics_boom
+656: negative: trade_war, regulatory_scrutiny
+657: Others
+658: BHARTIARTL:
+659: positive: tariff_hike, 5g_rollout, data_consumption_up
+660: negative: tariff_war, regulatory_fine
+661: ASIANPAINT:
+662: positive: housing_demand, monsoon_good, premiumization
+663: negative: input_cost_up, competition
+664: TITAN:
+665: positive: gold_price_up, wedding_season, premiumization
+666: negative: gold_price_crash, competition
+667: APOLLOHOSP:
+668: positive: healthcare_spending, insurance_penetration
+669: negative: regulatory_price_cap, input_cost_up
+670: SBILIFE:
+671: positive: insurance_penetration, rate_cut, vnb_margin_up
+672: negative: rate_hike, claims_spike
+673: HDFCLIFE:
+674: positive: insurance_penetration, rate_cut, vnb_margin_up
+675: negative: rate_hike, claims_spike
+676: UPL:
+677: positive: monsoon_good, global_agri_demand
+678: negative: monsoon_bad, generic_competition
+679: 14. TELEGRAM ALERT FORMAT
+680: Every alert must look exactly like this:
+681: plain
+682: 🚨 IIIS SIGNAL ALERT
+683: 
+684: Signal ID: IIIS-YYYY-MM-DD-NNN
+685: Time: HH:MM AM IST
+686: Valid Until: HH:MM AM IST (calculated from regime rules, Section 16)
+687: 
+688: Stock: SYMBOL
+689: Direction: LONG or SHORT
+690: Score: XX out of 100
+691: Confidence: HIGH or MEDIUM or LOW
+692: Risk Grade: A+ or A or B+ or B or C
+693: 
+694: Market Context:
+695: Regime: [Trend Day / Expiry Day / Reversal Day / Transition Day / Range Day]
+696: Sector Rank: [number]
+697: RS Percentile: [number]
+698: Volume: [N]x average
+================================================================================
+
+--- MATCH FOUND AT LINE 652 (positive: infra_spending, cement_demand, energy_transition) ---
+602: negative: steel_cost_up, fuel_price_up, rate_hike
+603: BAJAJ-AUTO:
+604: positive: two_wheeler_demand, export_growth, rate_cut
+605: negative: fuel_price_up, rate_hike, electric_competition
+606: HEROMOTOCO:
+607: positive: two_wheeler_demand, rural_growth, rate_cut
+608: negative: fuel_price_up, rate_hike, electric_competition
+609: EICHERMOT:
+610: positive: premium_bike_demand, export_growth, rate_cut
+611: negative: fuel_price_up, rate_hike, electric_competition
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+626: HINDUNILVR:
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+635: BRITANNIA:
+636: positive: rural_demand_up, monsoon_good, inflation_down
+637: negative: inflation_up, input_cost_up
+638: TATACONSUM:
+639: positive: beverage_demand, premiumization
+640: negative: inflation_up, input_cost_up
+641: Infrastructure
+642: LT:
+643: positive: infra_spending, govt_capex, order_book_up
+644: negative: interest_rate_up, execution_delay
+645: ULTRACEMCO:
+646: positive: infra_spending, housing_demand
+647: negative: fuel_cost_up, competition
+648: GRASIM:
+649: positive: cement_demand, textile_recovery
+650: negative: fuel_cost_up, cotton_price_up
+651: ADANIENT:
+652: positive: infra_spending, cement_demand, energy_transition
+653: negative: regulatory_scrutiny, debt_concerns
+654: ADANIPORTS:
+655: positive: trade_growth, port_expansion, logistics_boom
+656: negative: trade_war, regulatory_scrutiny
+657: Others
+658: BHARTIARTL:
+659: positive: tariff_hike, 5g_rollout, data_consumption_up
+660: negative: tariff_war, regulatory_fine
+661: ASIANPAINT:
+662: positive: housing_demand, monsoon_good, premiumization
+663: negative: input_cost_up, competition
+664: TITAN:
+665: positive: gold_price_up, wedding_season, premiumization
+666: negative: gold_price_crash, competition
+667: APOLLOHOSP:
+668: positive: healthcare_spending, insurance_penetration
+669: negative: regulatory_price_cap, input_cost_up
+670: SBILIFE:
+671: positive: insurance_penetration, rate_cut, vnb_margin_up
+672: negative: rate_hike, claims_spike
+673: HDFCLIFE:
+674: positive: insurance_penetration, rate_cut, vnb_margin_up
+675: negative: rate_hike, claims_spike
+676: UPL:
+677: positive: monsoon_good, global_agri_demand
+678: negative: monsoon_bad, generic_competition
+679: 14. TELEGRAM ALERT FORMAT
+680: Every alert must look exactly like this:
+681: plain
+682: 🚨 IIIS SIGNAL ALERT
+683: 
+684: Signal ID: IIIS-YYYY-MM-DD-NNN
+685: Time: HH:MM AM IST
+686: Valid Until: HH:MM AM IST (calculated from regime rules, Section 16)
+687: 
+688: Stock: SYMBOL
+689: Direction: LONG or SHORT
+690: Score: XX out of 100
+691: Confidence: HIGH or MEDIUM or LOW
+692: Risk Grade: A+ or A or B+ or B or C
+693: 
+694: Market Context:
+695: Regime: [Trend Day / Expiry Day / Reversal Day / Transition Day / Range Day]
+696: Sector Rank: [number]
+697: RS Percentile: [number]
+698: Volume: [N]x average
+699: VIX: [number]
+700: 
+701: Trade Levels:
+================================================================================
+
+--- MATCH FOUND AT LINE 662 (positive: housing_demand, monsoon_good, premiumization) ---
+612: Pharma
+613: SUNPHARMA:
+614: positive: fda_approval, patent_wins, generic_boom, us_demand_up
+615: negative: fda_warning, patent_loss, pricing_pressure
+616: DRREDDY:
+617: positive: fda_approval, patent_wins, generic_boom
+618: negative: fda_warning, patent_loss, pricing_pressure
+619: CIPLA:
+620: positive: fda_approval, generic_boom, api_demand
+621: negative: fda_warning, pricing_pressure
+622: DIVISLAB:
+623: positive: api_demand, china_alternative, fda_approval
+624: negative: china_competition, fda_warning
+625: FMCG
+626: HINDUNILVR:
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+635: BRITANNIA:
+636: positive: rural_demand_up, monsoon_good, inflation_down
+637: negative: inflation_up, input_cost_up
+638: TATACONSUM:
+639: positive: beverage_demand, premiumization
+640: negative: inflation_up, input_cost_up
+641: Infrastructure
+642: LT:
+643: positive: infra_spending, govt_capex, order_book_up
+644: negative: interest_rate_up, execution_delay
+645: ULTRACEMCO:
+646: positive: infra_spending, housing_demand
+647: negative: fuel_cost_up, competition
+648: GRASIM:
+649: positive: cement_demand, textile_recovery
+650: negative: fuel_cost_up, cotton_price_up
+651: ADANIENT:
+652: positive: infra_spending, cement_demand, energy_transition
+653: negative: regulatory_scrutiny, debt_concerns
+654: ADANIPORTS:
+655: positive: trade_growth, port_expansion, logistics_boom
+656: negative: trade_war, regulatory_scrutiny
+657: Others
+658: BHARTIARTL:
+659: positive: tariff_hike, 5g_rollout, data_consumption_up
+660: negative: tariff_war, regulatory_fine
+661: ASIANPAINT:
+662: positive: housing_demand, monsoon_good, premiumization
+663: negative: input_cost_up, competition
+664: TITAN:
+665: positive: gold_price_up, wedding_season, premiumization
+666: negative: gold_price_crash, competition
+667: APOLLOHOSP:
+668: positive: healthcare_spending, insurance_penetration
+669: negative: regulatory_price_cap, input_cost_up
+670: SBILIFE:
+671: positive: insurance_penetration, rate_cut, vnb_margin_up
+672: negative: rate_hike, claims_spike
+673: HDFCLIFE:
+674: positive: insurance_penetration, rate_cut, vnb_margin_up
+675: negative: rate_hike, claims_spike
+676: UPL:
+677: positive: monsoon_good, global_agri_demand
+678: negative: monsoon_bad, generic_competition
+679: 14. TELEGRAM ALERT FORMAT
+680: Every alert must look exactly like this:
+681: plain
+682: 🚨 IIIS SIGNAL ALERT
+683: 
+684: Signal ID: IIIS-YYYY-MM-DD-NNN
+685: Time: HH:MM AM IST
+686: Valid Until: HH:MM AM IST (calculated from regime rules, Section 16)
+687: 
+688: Stock: SYMBOL
+689: Direction: LONG or SHORT
+690: Score: XX out of 100
+691: Confidence: HIGH or MEDIUM or LOW
+692: Risk Grade: A+ or A or B+ or B or C
+693: 
+694: Market Context:
+695: Regime: [Trend Day / Expiry Day / Reversal Day / Transition Day / Range Day]
+696: Sector Rank: [number]
+697: RS Percentile: [number]
+698: Volume: [N]x average
+699: VIX: [number]
+700: 
+701: Trade Levels:
+702: Entry Zone: XXX to XXX
+703: Stop Loss: XXX
+704: Target 1: XXX (1.5R)
+705: Target 2: XXX (2.5R)
+706: Quantity: NNN shares
+707: Risk: ₹XXX (0.5%)
+708: 
+709: Intelligence:
+710: GEIE Direction: POSITIVE or NEGATIVE or NEUTRAL or UNAVAILABLE
+711: GEIE Reason: [one line here]
+================================================================================
+
+--- MATCH FOUND AT LINE 677 (positive: monsoon_good, global_agri_demand) ---
+627: positive: rural_demand_up, monsoon_good, premiumization
+628: negative: inflation_up, rural_distress
+629: ITC:
+630: positive: cigarette_volume_up, hotel_recovery, fmcg_growth
+631: negative: tax_hike_cigarette, esg_pressure
+632: NESTLEIND:
+633: positive: urban_demand_up, premiumization
+634: negative: inflation_up, input_cost_up
+635: BRITANNIA:
+636: positive: rural_demand_up, monsoon_good, inflation_down
+637: negative: inflation_up, input_cost_up
+638: TATACONSUM:
+639: positive: beverage_demand, premiumization
+640: negative: inflation_up, input_cost_up
+641: Infrastructure
+642: LT:
+643: positive: infra_spending, govt_capex, order_book_up
+644: negative: interest_rate_up, execution_delay
+645: ULTRACEMCO:
+646: positive: infra_spending, housing_demand
+647: negative: fuel_cost_up, competition
+648: GRASIM:
+649: positive: cement_demand, textile_recovery
+650: negative: fuel_cost_up, cotton_price_up
+651: ADANIENT:
+652: positive: infra_spending, cement_demand, energy_transition
+653: negative: regulatory_scrutiny, debt_concerns
+654: ADANIPORTS:
+655: positive: trade_growth, port_expansion, logistics_boom
+656: negative: trade_war, regulatory_scrutiny
+657: Others
+658: BHARTIARTL:
+659: positive: tariff_hike, 5g_rollout, data_consumption_up
+660: negative: tariff_war, regulatory_fine
+661: ASIANPAINT:
+662: positive: housing_demand, monsoon_good, premiumization
+663: negative: input_cost_up, competition
+664: TITAN:
+665: positive: gold_price_up, wedding_season, premiumization
+666: negative: gold_price_crash, competition
+667: APOLLOHOSP:
+668: positive: healthcare_spending, insurance_penetration
+669: negative: regulatory_price_cap, input_cost_up
+670: SBILIFE:
+671: positive: insurance_penetration, rate_cut, vnb_margin_up
+672: negative: rate_hike, claims_spike
+673: HDFCLIFE:
+674: positive: insurance_penetration, rate_cut, vnb_margin_up
+675: negative: rate_hike, claims_spike
+676: UPL:
+677: positive: monsoon_good, global_agri_demand
+678: negative: monsoon_bad, generic_competition
+679: 14. TELEGRAM ALERT FORMAT
+680: Every alert must look exactly like this:
+681: plain
+682: 🚨 IIIS SIGNAL ALERT
+683: 
+684: Signal ID: IIIS-YYYY-MM-DD-NNN
+685: Time: HH:MM AM IST
+686: Valid Until: HH:MM AM IST (calculated from regime rules, Section 16)
+687: 
+688: Stock: SYMBOL
+689: Direction: LONG or SHORT
+690: Score: XX out of 100
+691: Confidence: HIGH or MEDIUM or LOW
+692: Risk Grade: A+ or A or B+ or B or C
+693: 
+694: Market Context:
+695: Regime: [Trend Day / Expiry Day / Reversal Day / Transition Day / Range Day]
+696: Sector Rank: [number]
+697: RS Percentile: [number]
+698: Volume: [N]x average
+699: VIX: [number]
+700: 
+701: Trade Levels:
+702: Entry Zone: XXX to XXX
+703: Stop Loss: XXX
+704: Target 1: XXX (1.5R)
+705: Target 2: XXX (2.5R)
+706: Quantity: NNN shares
+707: Risk: ₹XXX (0.5%)
+708: 
+709: Intelligence:
+710: GEIE Direction: POSITIVE or NEGATIVE or NEUTRAL or UNAVAILABLE
+711: GEIE Reason: [one line here]
+712: Historical Win Rate: XX% (N setups found)
+713: ARC Pre-Market: APPROVE or CAUTION or REJECT or UNREVIEWED
+714: 
+715: SMC Structure: [5m signal] + [15m signal]
+716: Options: [build-up type here]
+717: 
+718: 💰 BIG MONEY SIGNALS
+719: FII Trend: [BUYER/SELLER] [N] days [✅/❌]
+720: Bulk Deal: [Rs XXCr BUY/SELL at HH:MM] [✅/❌]
+721: Options: [PUT/CALL writing heavy at strike] [✅/❌]
+722: OB Zone: [level] (tested [N]x, held [N]x) [✅/❌]
+723: RS Diverge: [+/-X.X%] vs NIFTY [+/-X.X%] [✅/❌]
+724: Big Money Score: [XX]/100
+725: Conclusion: [Institutions accumulating/distributing/neutral]
+726: 
+================================================================================
+
+--- MATCH FOUND AT LINE 784 (18. DATABASE SCHEMA — 16 TABLES) ---
+734: A+	> 95	HIGH confidence	> 65%	HIGH	Any	Best quality
+735: A	90-94	HIGH or MEDIUM	> 55%	HIGH	80+ upgrades B+→A	
+736: B+	87-89	MEDIUM	> 50%	MEDIUM	80+ upgrades B→B+	
+737: B	86	LOW or NEUTRAL	> 45%	MEDIUM	Any	Minimum passing score
+738: C	Any	Any	Any	Any	Any	CAUTION flag present
+739: Upgrade Rules:
+740: Base B (86) + Big Money ≥80 = Final B+
+741: Base B+ (87-89) + Big Money ≥80 = Final A
+742: Base A (90-94) + Big Money ≥80 = Final A+
+743: Base A+ (95+) = No upgrade needed
+744: Note: Score 85 is REJECTED. Grade B starts at 86.
+745: 16. ALERT VALIDITY & COOLDOWN RULES
+746: Alert Validity by Regime
+747: Table
+748: Regime	Validity Period
+749: Trend Day	15 minutes
+750: Expiry Day	5 minutes
+751: Reversal Day	10 minutes
+752: Transition Day	10 minutes (alerts blocked anyway)
+753: Range Day	10 minutes (alerts blocked anyway)
+754: Auto expiry always enabled
+755: Valid until = Alert time + validity period
+756: After expiry, signal status changes to EXPIRED
+757: Alert Cooldown
+758: Standard Cooldown:
+759: Same stock, same direction = 30 minute wait from last alert expiry
+760: Cooldown Exception (allows immediate re-alert):
+761: Score improves by 10 or more points AND
+762: New market regime detected (different from previous alert's regime)
+763: Exception does NOT apply if:
+764: Same regime, even with +10 score improvement
+765: Different direction (treated as new signal, no cooldown)
+766: 17. RISK MANAGEMENT
+767: Table
+768: Parameter	Value
+769: Risk per trade	0.5% of capital
+770: Maximum daily risk	2% of capital
+771: Hard stop	3 consecutive losses
+772: After hard stop	No alerts until next day (03:30 PM reset)
+773: Position Size Formula
+774: plain
+775: Size = (Capital × 0.5%) ÷ max((Entry − Stop Loss), Entry × 0.001)
+776: VIX Position Adjustment
+777: Table
+778: VIX Level	Position Size
+779: Below 15	100% (full size)
+780: 15 to 20	75% of calculated size
+781: Above 20	50% of calculated size
+782: Maximum single position: 10% of capital
+783: Daily reset at 03:30 PM: Risk counters reset to zero, consecutive loss counter resets
+784: 18. DATABASE SCHEMA — 16 TABLES
+785: TABLE 1: market_data (TimescaleDB)
+786: sql
+787: CREATE TABLE market_data (
+788:     time TIMESTAMPTZ NOT NULL,
+789:     symbol VARCHAR(20) NOT NULL,
+790:     open DECIMAL(12,4),
+791:     high DECIMAL(12,4),
+792:     low DECIMAL(12,4),
+793:     close DECIMAL(12,4),
+794:     volume BIGINT,
+795:     vwap DECIMAL(12,4),
+796:     timeframe VARCHAR(10) NOT NULL
+797: );
+798: SELECT create_hypertable('market_data', 'time', chunk_time_interval => INTERVAL '1 day');
+799: TABLE 2: signals
+800: sql
+801: CREATE TABLE signals (
+802:     signal_id VARCHAR(30) PRIMARY KEY,
+803:     timestamp TIMESTAMPTZ NOT NULL,
+804:     symbol VARCHAR(20) NOT NULL,
+805:     direction VARCHAR(10) NOT NULL CHECK (direction IN ('LONG', 'SHORT')),
+806:     score DECIMAL(5,2) NOT NULL CHECK (score > 85.0),
+807:     confidence VARCHAR(10) NOT NULL CHECK (confidence IN ('HIGH', 'MEDIUM', 'LOW')),
+808:     regime VARCHAR(20) NOT NULL,
+809:     entry_low DECIMAL(12,4) NOT NULL,
+810:     entry_high DECIMAL(12,4) NOT NULL,
+811:     stop_loss DECIMAL(12,4) NOT NULL,
+812:     target_1 DECIMAL(12,4) NOT NULL,
+813:     target_2 DECIMAL(12,4) NOT NULL,
+814:     quantity INTEGER NOT NULL,
+815:     risk_amount DECIMAL(12,2) NOT NULL,
+816:     geie_direction VARCHAR(20),
+817:     geie_confidence VARCHAR(10),
+818:     arc_decision VARCHAR(20),
+819:     historical_wr DECIMAL(5,2),
+820:     historical_sample INTEGER,
+821:     risk_grade VARCHAR(5) NOT NULL,
+822:     status VARCHAR(20) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'EXPIRED', 'HIT_SL', 'HIT_T1', 'HIT_T2', 'CANCELLED')),
+823:     valid_until TIMESTAMPTZ NOT NULL,
+824:     created_at TIMESTAMPTZ DEFAULT NOW()
+825: );
+826: TABLE 3: active_alerts
+827: sql
+828: CREATE TABLE active_alerts (
+829:     alert_id SERIAL PRIMARY KEY,
+830:     signal_id VARCHAR(30) REFERENCES signals(signal_id),
+831:     symbol VARCHAR(20) NOT NULL,
+832:     direction VARCHAR(10) NOT NULL,
+833:     sector VARCHAR(50) NOT NULL,
+================================================================================
+
+--- MATCH FOUND AT LINE 1089 (Phase 3 — Multi Timeframe Engine (Week 4)) ---
+1039: Telegram Bot status
+1040: PostgreSQL connection
+1041: Redis connection
+1042: Log every check to system_health table
+1043: Alert admin if any component is DOWN
+1044: 4 consecutive failures = trigger Ghost Mode
+1045: 21. SESSION END PROTOCOL
+1046: Table
+1047: Time	Action
+1048: 03:14:30 PM	Lock queue, no new alerts
+1049: 03:15:00 PM	Stop all alert generation
+1050: 03:20:00 PM	Close all monitoring loops
+1051: 03:30:00 PM	Freeze session and reset counters
+1052: 04:00:00 PM	Run ARC post-market batch
+1053: 04:30:00 PM	Generate and send EOD report
+1054: EOD Report Must Include
+1055: Total stocks scanned today
+1056: Total signals generated
+1057: Total alerts sent
+1058: Total alerts rejected and why (per gate)
+1059: Daily risk percentage used
+1060: Consecutive loss count
+1061: Regime accuracy assessment
+1062: GEIE direction accuracy
+1063: Historical pattern accuracy
+1064: Big Money signals detected today
+1065: System uptime and health summary
+1066: Next day watchlist draft
+1067: 22. DEVELOPMENT PHASES IN ORDER
+1068: Phase 1 — Infrastructure (Week 1-2)
+1069: Set up VPS primary and backup
+1070: Install PostgreSQL with TimescaleDB
+1071: Install Redis
+1072: Create Docker setup
+1073: Create all 16 database tables
+1074: Set up environment variables
+1075: Build health monitoring system
+1076: Build Ghost Mode system
+1077: Build audit logging system
+1078: Test all connections
+1079: Do not proceed until all tests pass
+1080: Phase 2 — Market Data (Week 3)
+1081: Integrate Upstox API V3
+1082: Build WebSocket connection with auto-reconnect
+1083: Build REST fallback for WebSocket failure
+1084: Build OHLC candle constructor from tick data
+1085: Build 1m, 5m, 15m, 30m, Daily candle builder
+1086: Build instrument master loader for NIFTY 50
+1087: Test live data flow for all 50 stocks
+1088: Verify latency under 100ms
+1089: Phase 3 — Multi Timeframe Engine (Week 4)
+1090: Build trend calculator for each timeframe
+1091: Build alignment scorer across timeframes
+1092: Minimum 3 of 4 alignment rule (same direction)
+1093: Phase 4 — SMC Engine (Week 5)
+1094: Build BOS detector for 5m and 15m
+1095: Build CHOCH detector for 5m and 15m
+1096: Build Order Block detector for 5m and 15m
+1097: Build FVG detector for 5m and 15m
+1098: Build cross-timeframe validator
+1099: Enforce 5m + 15m mandatory rule
+1100: Build direction mapping logic
+1101: Phase 5 — Options Engine (Week 6)
+1102: Build option chain fetcher from Upstox
+1103: Build PCR calculator
+1104: Build OI change tracker
+1105: Build buildup classifier
+1106: Build 5-minute scheduler (synchronized to market clock)
+1107: Build event-driven trigger on SMC
+1108: Phase 6 — Scoring Engine (Week 7)
+1109: Build all 7 individual engines (Regime, RS, RVOL, Breadth, Options, Sector, SMC Quality)
+1110: Build composite score calculator
+1111: Build regime detector
+1112: Build sector mapper
+1113: Enforce score threshold strictly > 85
+1114: Phase 7 — Risk Gates (Week 8)
+1115: Build all 8 gates in order
+1116: Build earnings calendar loader (24-hour Asia/Kolkata window)
+1117: Build event calendar loader (RBI, Fed, CPI, GDP, Budget, MPC)
+1118: Build VIX adjustment logic
+1119: Build ATR-based pause logic
+1120: Ensure gates run before AI layers
+1121: Phase 8 — Backtesting Engine (Week 9-10)
+1122: Build historical data downloader
+1123: Build signal replay engine
+1124: Build performance metrics calculator
+1125: Run 90 days of backtest
+1126: Validate: Profit Factor above 1.5, Drawdown below 15%, Win Rate above 45%
+1127: Fix any issues before proceeding
+1128: Phase 9 — GEIE Engine (Week 11)
+1129: Build Perplexity integration
+1130: Build Gemini integration
+1131: Build master correlation map loader with all 50 stocks
+1132: Build Redis caching for GEIE output (60-min fallback)
+1133: Build failure handling (NEVER block alerts)
+1134: Test end-to-end
+1135: Phase 10 — Historical Pattern Engine (Week 12)
+1136: Build similar setup searcher (90-day lookback)
+1137: Build win rate calculator
+1138: Build confidence scorer
+================================================================================
+
+--- MATCH FOUND AT LINE 1092 (Minimum 3 of 4 alignment rule (same direction)) ---
+1042: Log every check to system_health table
+1043: Alert admin if any component is DOWN
+1044: 4 consecutive failures = trigger Ghost Mode
+1045: 21. SESSION END PROTOCOL
+1046: Table
+1047: Time	Action
+1048: 03:14:30 PM	Lock queue, no new alerts
+1049: 03:15:00 PM	Stop all alert generation
+1050: 03:20:00 PM	Close all monitoring loops
+1051: 03:30:00 PM	Freeze session and reset counters
+1052: 04:00:00 PM	Run ARC post-market batch
+1053: 04:30:00 PM	Generate and send EOD report
+1054: EOD Report Must Include
+1055: Total stocks scanned today
+1056: Total signals generated
+1057: Total alerts sent
+1058: Total alerts rejected and why (per gate)
+1059: Daily risk percentage used
+1060: Consecutive loss count
+1061: Regime accuracy assessment
+1062: GEIE direction accuracy
+1063: Historical pattern accuracy
+1064: Big Money signals detected today
+1065: System uptime and health summary
+1066: Next day watchlist draft
+1067: 22. DEVELOPMENT PHASES IN ORDER
+1068: Phase 1 — Infrastructure (Week 1-2)
+1069: Set up VPS primary and backup
+1070: Install PostgreSQL with TimescaleDB
+1071: Install Redis
+1072: Create Docker setup
+1073: Create all 16 database tables
+1074: Set up environment variables
+1075: Build health monitoring system
+1076: Build Ghost Mode system
+1077: Build audit logging system
+1078: Test all connections
+1079: Do not proceed until all tests pass
+1080: Phase 2 — Market Data (Week 3)
+1081: Integrate Upstox API V3
+1082: Build WebSocket connection with auto-reconnect
+1083: Build REST fallback for WebSocket failure
+1084: Build OHLC candle constructor from tick data
+1085: Build 1m, 5m, 15m, 30m, Daily candle builder
+1086: Build instrument master loader for NIFTY 50
+1087: Test live data flow for all 50 stocks
+1088: Verify latency under 100ms
+1089: Phase 3 — Multi Timeframe Engine (Week 4)
+1090: Build trend calculator for each timeframe
+1091: Build alignment scorer across timeframes
+1092: Minimum 3 of 4 alignment rule (same direction)
+1093: Phase 4 — SMC Engine (Week 5)
+1094: Build BOS detector for 5m and 15m
+1095: Build CHOCH detector for 5m and 15m
+1096: Build Order Block detector for 5m and 15m
+1097: Build FVG detector for 5m and 15m
+1098: Build cross-timeframe validator
+1099: Enforce 5m + 15m mandatory rule
+1100: Build direction mapping logic
+1101: Phase 5 — Options Engine (Week 6)
+1102: Build option chain fetcher from Upstox
+1103: Build PCR calculator
+1104: Build OI change tracker
+1105: Build buildup classifier
+1106: Build 5-minute scheduler (synchronized to market clock)
+1107: Build event-driven trigger on SMC
+1108: Phase 6 — Scoring Engine (Week 7)
+1109: Build all 7 individual engines (Regime, RS, RVOL, Breadth, Options, Sector, SMC Quality)
+1110: Build composite score calculator
+1111: Build regime detector
+1112: Build sector mapper
+1113: Enforce score threshold strictly > 85
+1114: Phase 7 — Risk Gates (Week 8)
+1115: Build all 8 gates in order
+1116: Build earnings calendar loader (24-hour Asia/Kolkata window)
+1117: Build event calendar loader (RBI, Fed, CPI, GDP, Budget, MPC)
+1118: Build VIX adjustment logic
+1119: Build ATR-based pause logic
+1120: Ensure gates run before AI layers
+1121: Phase 8 — Backtesting Engine (Week 9-10)
+1122: Build historical data downloader
+1123: Build signal replay engine
+1124: Build performance metrics calculator
+1125: Run 90 days of backtest
+1126: Validate: Profit Factor above 1.5, Drawdown below 15%, Win Rate above 45%
+1127: Fix any issues before proceeding
+1128: Phase 9 — GEIE Engine (Week 11)
+1129: Build Perplexity integration
+1130: Build Gemini integration
+1131: Build master correlation map loader with all 50 stocks
+1132: Build Redis caching for GEIE output (60-min fallback)
+1133: Build failure handling (NEVER block alerts)
+1134: Test end-to-end
+1135: Phase 10 — Historical Pattern Engine (Week 12)
+1136: Build similar setup searcher (90-day lookback)
+1137: Build win rate calculator
+1138: Build confidence scorer
+1139: Enforce minimum 10 setup rule
+1140: Build direction mapping from SMC
+1141: Phase 11 — ARC Engine (Week 13)
+================================================================================

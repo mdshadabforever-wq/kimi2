@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  iiis-db:
+    image: timescale/timescaledb:latest-pg15
+    container_name: iiis-db
+    environment:
+      POSTGRES_DB: iiis
+      POSTGRES_USER: iiis_user
+      POSTGRES_PASSWORD: strong_password_here
+    ports:
+      - "5439:5432"
+    volumes:
+      - iiis_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iiis_user -d iiis"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  iiis-redis:
+    image: redis:7-alpine
+    container_name: iiis-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - iiis_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  iiis_db_data:
+  iiis_redis_data:
