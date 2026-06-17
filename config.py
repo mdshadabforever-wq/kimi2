@@ -15,6 +15,8 @@ class Config:
     PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
     CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
+    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 
     # Telegram
     TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -58,8 +60,12 @@ class Config:
                 missing.append(key)
 
         if missing:
-            print(f"CRITICAL: Missing environment variables: {', '.join(missing)}", file=sys.stderr)
-            sys.exit(1)
+            if cls.MOCK_MODE:
+                print(f"WARNING: Missing environment variables for production: {', '.join(missing)}. Mock fallbacks will be used.", file=sys.stderr)
+            else:
+                print(f"CRITICAL: Missing environment variables: {', '.join(missing)}", file=sys.stderr)
+                sys.exit(1)
+
 
         # Validate numeric ranges
         if not (0.0 < cls.RISK_PCT <= 10.0):

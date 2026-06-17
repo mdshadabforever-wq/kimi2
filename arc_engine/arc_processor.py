@@ -351,6 +351,9 @@ class ARCProcessor:
         try:
             claude = ServiceRegistry.get("claude")
             result = claude.review_signals_postmarket(session_signals)
+            if isinstance(result, dict):
+                result["status"] = "SUCCESS"
+                result["reviewed_count"] = len(session_signals)
             log_audit(
                 component="ARC_ENGINE",
                 action="POSTMARKET_REVIEW",

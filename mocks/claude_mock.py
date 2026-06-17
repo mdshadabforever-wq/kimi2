@@ -22,17 +22,25 @@ class ClaudeMock(ClaudeInterface):
             raise TimeoutError("Simulated Claude API Timeout")
         self.consecutive_failures = 0
 
-    def review_watchlist_premarket(self, watchlist: List[str], context: Dict[str, Any]) -> Dict[str, str]:
+    def review_watchlist_premarket(self, watchlist: List[str], context: Dict[str, Any]) -> Dict[str, Any]:
         self._handle_failures()
         decisions = {}
         for symbol in watchlist:
             if symbol == "RELIANCE":
-                decisions[symbol] = "CAUTION"
+                decisions[symbol] = {"decision": "CAUTION", "reason": "designated as CAUTION for test coverage"}
             elif symbol == "WIPRO":
-                decisions[symbol] = "REJECT"
+                decisions[symbol] = {"decision": "REJECT", "reason": "Test symbol WIPRO always rejected in mock mode"}
             else:
-                decisions[symbol] = "APPROVE"
-        return decisions
+                decisions[symbol] = {"decision": "APPROVE", "reason": "Setup looks good, proceed normally"}
+        return {
+            "arc_id": f"ARC-PRE-{datetime.date.today()}-001",
+            "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S IST"),
+            "market_context": "Mock premarket watchlist review context",
+            "watchlist_review": decisions,
+            "overall_market_call": "BULLISH",
+            "key_risks_today": ["Volatile global cues"],
+            "arc_status": "COMPLETE"
+        }
 
     def review_symbol(self, signal_id: str, arc_input_bundle: Dict[str, Any]) -> Dict[str, Any]:
         """Returns a mock ARC decision JSON. Simulates APPROVE for most signals,
@@ -118,14 +126,68 @@ class ClaudeMock(ClaudeInterface):
             "arc_version": "1.0"
         }
 
+    def review_live_signal(self, signal_data: Dict[str, Any], tech_summary: Dict[str, Any], intelligence_summary: Dict[str, Any], risk_summary: Dict[str, Any], market_now: Dict[str, Any]) -> Dict[str, Any]:
+        self._handle_failures()
+        return {
+            "arc_live_id": f"ARC-LIVE-{int(time.time())}",
+            "symbol": signal_data.get("symbol", "RELIANCE"),
+            "decision": "APPROVE",
+            "reason": "Signal backed by robust mock parameters.",
+            "contrarian_flag": "NONE",
+            "urgency_note": "act fast"
+        }
+
     def review_signals_postmarket(self, signals: List[Dict[str, Any]]) -> Dict[str, Any]:
         self._handle_failures()
         return {
-            "status": "SUCCESS",
-            "reviewed_count": len(signals),
-            "next_day_watchlist_additions": ["TATASTEEL", "HDFCBANK"]
+            "arc_eod_id": f"ARC-EOD-{datetime.date.today()}",
+            "session_quality": "GOOD",
+            "what_worked": "Mock post market signals processed cleanly.",
+            "what_failed": "Some tight stops triggered.",
+            "best_signal": "TATASTEEL because of quick target hit.",
+            "worst_signal": "HDFCBANK due to stop out.",
+            "tomorrow_watchlist": ["TATASTEEL", "HDFCBANK"],
+            "tomorrow_avoid": ["WIPRO"],
+            "system_suggestion": "NONE",
+            "overall_assessment": "Mock run complete."
         }
 
+    def generate_postmortem(self, trade_facts: Dict[str, Any]) -> Dict[str, Any]:
+        self._handle_failures()
+        return {
+            "avoidability_rating": "HIGH",
+            "warning_signs": ["Volume was lower than the 5-day average at entry."],
+            "failure_category": "WEAK_VOLUME",
+            "lessons_learned": "Wait for clear confirmation of volume breakdown before entry fill."
+        }
 
+    def analyze_patterns(self, trade_logs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        self._handle_failures()
+        return [
+            {
+                "pattern_name": "SMC Break of Structure with FII Buy Flow",
+                "sample_size": len(trade_logs),
+                "win_rate": 78.5,
+                "avg_r_multiple": 2.1
+            }
+        ]
+
+    def generate_memory_insights(self, category: str, content: str) -> Dict[str, Any]:
+        self._handle_failures()
+        return {
+            "insight_id": 1,
+            "category": category,
+            "title": "Optimizing Volatility Corridors",
+            "takeaway": "Avoid active entries during peak European market opens (1:30 PM - 2:00 PM IST)."
+        }
+
+    def generate_founder_review(self, notes: List[Dict[str, Any]]) -> Dict[str, Any]:
+        self._handle_failures()
+        return {
+            "psychological_bias_detected": "FOMO",
+            "rules_deviations_count": 2,
+            "actionable_feedback": "Ensure the price sits strictly within the entry zone before executing orders."
+        }
 
 DefinitionClass = ClaudeMock
+

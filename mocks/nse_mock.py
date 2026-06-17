@@ -45,4 +45,48 @@ class NSEMock(NSEInterface):
                 "deal_category": "BULK"
             }
         ]
+
+    def fetch_block_deals(self) -> List[Dict[str, Any]]:
+        self._handle_failures()
+        now = datetime.datetime.now()
+        return [
+            {
+                "timestamp": now - datetime.timedelta(minutes=10),
+                "symbol": "RELIANCE",
+                "deal_type": "SELL",
+                "quantity": 500000,
+                "price": 2400.00,
+                "value_crores": 120.00,
+                "client_name": "ICICI PRUDENTIAL MUTUAL FUND",
+                "deal_category": "BLOCK"
+            }
+        ]
+
+    def fetch_bhavcopy(self, download_date: datetime.date) -> List[Dict[str, Any]]:
+        self._handle_failures()
+        return [
+            {
+                "symbol": "RELIANCE",
+                "open": 2400.00,
+                "high": 2420.00,
+                "low": 2390.00,
+                "close": 2410.00,
+                "volume": 5000000,
+                "time": datetime.datetime.combine(download_date, datetime.time(15, 30))
+            }
+        ]
+
+    def fetch_corporate_actions(self) -> List[Dict[str, Any]]:
+        self._handle_failures()
+        return [
+            {
+                "event_name": "Dividend - Rs 10 per share",
+                "event_date": datetime.date.today(),
+                "event_time": datetime.time(9, 15),
+                "impact_level": "HIGH",
+                "description": "RELIANCE Dividend payout session."
+            }
+        ]
+
 DefinitionClass = NSEMock
+
