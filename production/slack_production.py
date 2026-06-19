@@ -29,19 +29,48 @@ class SlackProduction(SlackInterface):
     # ------------------------------------------------------------------
 
     def _send(self, text: str) -> bool:
-        """POST payload to Slack Incoming Webhook. Returns True on success."""
-        payload = {"text": text}
+        """POST payload to Slack. Supports Incoming Webhooks and OAuth Bot Tokens (xoxb-)."""
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0"
+        }
+        
+        # Check if webhook_url is actually an OAuth Bot Token
+        if self.webhook_url.startswith("xoxb-"):
+            # Post to chat.postMessage API using Bot Token
+            url = "https://slack.com/api/chat.postMessage"
+            payload = {
+                "channel": "#trading", # Default target channel
+                "text": text
+            }
+            headers["Authorization"] = f"Bearer {self.webhook_url}"
+        else:
+            url = self.webhook_url
+            payload = {"text": text}
+
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
-            self.webhook_url,
+            url,
             data=data,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         try:
             with urllib.request.urlopen(req, timeout=self.TIMEOUT) as resp:
                 body = resp.read().decode("utf-8")
+                
+                is_success = False
                 if body.strip() == "ok":
+                    is_success = True
+                else:
+                    try:
+                        resp_json = json.loads(body)
+                        if resp_json.get("ok") is True:
+                            is_success = True
+                    except Exception:
+                        pass
+                        
+                if is_success:
                     self.consecutive_failures = 0
                     return True
                 else:

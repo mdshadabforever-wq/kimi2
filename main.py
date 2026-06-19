@@ -2,17 +2,21 @@ import asyncio
 import sys
 import os
 import datetime
+from dotenv import load_dotenv
+
+# Load environment variables from .env first so they take precedence over setdefault
+load_dotenv()
 
 # ── System flags ──────────────────────────────────────────────────────
-os.environ["IIIS_TESTING"] = "True"
+os.environ.setdefault("IIIS_TESTING", "False")
 
 # ── Real Telegram credentials ─────────────────────────────────────────
-os.environ.setdefault("TELEGRAM_BOT_TOKEN",    "YOUR_TELEGRAM_BOT_TOKEN_HERE")
-os.environ.setdefault("TELEGRAM_ADMIN_CHAT_ID", "YOUR_TELEGRAM_CHAT_ID_HERE")
+os.environ.setdefault("TELEGRAM_BOT_TOKEN",    "mock_bot_token")
+os.environ.setdefault("TELEGRAM_ADMIN_CHAT_ID", "mock_chat_id")
 
 # ── Real Slack Incoming Webhook ───────────────────────────────────────
 # Set SLACK_WEBHOOK_URL in your .env file or environment before running.
-os.environ.setdefault("SLACK_WEBHOOK_URL", "")
+os.environ.setdefault("SLACK_WEBHOOK_URL", "mock_webhook")
 
 from bootstrap import register_services
 from database import init_db
