@@ -1,20 +1,13 @@
-\# IIIS v4.6 AGENT GOVERNANCE FILE
+# IIIS v4.6 AGENT GOVERNANCE FILE
 
+## READ FIRST
 
+Before taking any action, read these files in order:
 
-\## READ FIRST
+1. [PROJECT_MAP.md](file:///c:/Users/shadab/Desktop/trade/PROJECT_MAP.md) - System architecture, wiring interactions, and file paths map.
+2. [IIIS_V4_6_FROZEN_SPEC.md](file:///c:/Users/shadab/Desktop/trade/docs/IIIS_V4_6_FROZEN_SPEC.md) - The authoritative source of truth.
 
-
-
-Before any action read:
-
-
-
-docs/IIIS\_V4\_6\_FROZEN\_SPEC.md
-
-
-
-This file is the authoritative source of truth.
+The frozen specification overrides:
 
 
 
