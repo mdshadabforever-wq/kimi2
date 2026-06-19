@@ -14,7 +14,7 @@ class GeminiProduction(GeminiInterface):
     Maintains clean JSON structuring configuration and error handling.
     """
 
-    TIMEOUT = 25  # seconds
+    TIMEOUT = 90  # seconds
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY", "mock_gemini_key")
