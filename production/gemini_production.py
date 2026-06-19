@@ -19,7 +19,7 @@ class GeminiProduction(GeminiInterface):
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY", "mock_gemini_key")
 
-    def _call_api(self, prompt: str, system_context: str = None, response_schema: Optional[Dict[str, Any]] = None) -> str:
+    def _call_api(self, prompt: str, system_context: str = None, response_schema: Optional[Dict[str, Any]] = None, enable_search: bool = False) -> str:
         """Runs generateContent request to Gemini API."""
         if not self.api_key or "mock" in self.api_key.lower():
             print("[Gemini PROD] Warning: Using Mock key. Returning grounded fallback.")
@@ -42,6 +42,9 @@ class GeminiProduction(GeminiInterface):
                 "temperature": 0.2
             }
         }
+        
+        if enable_search:
+            payload["tools"] = [{"google_search": {}}]
         
         if response_schema:
             payload["generationConfig"]["responseMimeType"] = "application/json"

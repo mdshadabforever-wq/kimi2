@@ -24,8 +24,19 @@ class PerplexityProduction(PerplexityInterface):
     def _call_api(self, prompt: str, system_prompt: str = None, response_schema: dict = None) -> str:
         """Helper method to run a POST request with headers and retry logic."""
         if not self.api_key or "mock" in self.api_key.lower():
+            # Check if we can fallback to Gemini with Search Grounding to get real news for free
+            gemini_key = os.getenv("GEMINI_API_KEY")
+            if gemini_key and "mock" not in gemini_key.lower():
+                print("[Perplexity PROD] Perplexity key is Mock but Gemini key is available. Falling back to Gemini Grounded Search...")
+                try:
+                    from production.gemini_production import GeminiProduction
+                    gemini_client = GeminiProduction(api_key=gemini_key)
+                    return gemini_client._call_api(prompt, system_context=system_prompt, response_schema=response_schema, enable_search=True)
+                except Exception as e_gem:
+                    print(f"[Perplexity PROD] Gemini Grounded Search fallback failed: {e_gem}. Falling back to static mock response.")
+
             # Soft fallback to simulate output in development
-            print("[Perplexity PROD] Warning: Using Mock API Key. Returning structured fallback.")
+            print("[Perplexity PROD] Warning: Using Mock API Key and no Gemini Key. Returning structured fallback.")
             return self._fallback_grounded_response(prompt, response_schema)
 
         headers = {
