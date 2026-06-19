@@ -27,8 +27,8 @@ The chronological sequence is driven by [`scheduler.py`](file:///c:/Users/shadab
 
 ```mermaid
 graph TD
-    A[07:00 AM: Perplexity Global News] -->|Save JSON| B(daily_intelligence/global_news_date.json)
-    C[08:00 AM: Perplexity India News] -->|Save JSON| D(daily_intelligence/india_news_date.json)
+    A[07:00 AM: Gemini Global News Grounded Search] -->|Save JSON| B(daily_intelligence/global_news_date.json)
+    C[08:00 AM: Gemini India News Grounded Search] -->|Save JSON| D(daily_intelligence/india_news_date.json)
     B --> E[08:15 AM: Gemini GEIE Analysis]
     D --> E
     E -->|Save JSON / DB| F(daily_intelligence/geie_analysis_date.json)
@@ -39,9 +39,8 @@ graph TD
     K --> L[Post EOD Slack Report]
 ```
 
-- **Perplexity News Ingestion (Prompt 1 & 2)**:
-  - Configured in [`production/perplexity_production.py`](file:///c:/Users/shadab/Desktop/trade/production/perplexity_production.py).
-  - *Perplexity Fallback*: If `PERPLEXITY_API_KEY` contains "mock" and a real `GEMINI_API_KEY` is present, it automatically falls back to `GeminiProduction` with `enable_search=True` (Google Search Grounding) to fetch news for free.
+- **Gemini Grounded News Ingestion (Prompt 1 & 2)**:
+  - Handled by the Perplexity adapter interface [`production/perplexity_production.py`](file:///c:/Users/shadab/Desktop/trade/production/perplexity_production.py) automatically falling back to `GeminiProduction` with `enable_search=True` (Google Search Grounding) to fetch real-time news for free using your active Gemini API key.
 - **Gemini GEIE Stock Impact Map (Prompt 3)**:
   - Configured in [`production/gemini_production.py`](file:///c:/Users/shadab/Desktop/trade/production/gemini_production.py#L166-L260).
   - Maps global/Indian news to positive, negative, or neutral directions for all 50 Nifty stocks. Persists results to the database table `geie_events` via [`geie_engine/persistence.py`](file:///c:/Users/shadab/Desktop/trade/geie_engine/persistence.py).
