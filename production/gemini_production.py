@@ -46,7 +46,7 @@ class GeminiProduction(GeminiInterface):
         if enable_search:
             payload["tools"] = [{"google_search": {}}]
         
-        if response_schema:
+        if response_schema and not enable_search:
             payload["generationConfig"]["responseMimeType"] = "application/json"
             payload["generationConfig"]["responseSchema"] = response_schema
 
