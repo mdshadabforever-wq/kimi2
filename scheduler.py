@@ -192,6 +192,12 @@ class Scheduler:
             if now.minute != last_checked_minute:
                 last_checked_minute = now.minute
                 
+                # Check if today is a trading day
+                from market_calendar import is_trading_day
+                if not is_trading_day(now.date()):
+                    print(f"[SCHEDULER] Skipping scheduled jobs: Today ({now.date()}) is a non-trading day (weekend/holiday).")
+                    continue
+                
                 # 07:00 AM IST - Perplexity Global Market News
                 if current_time.hour == 7 and current_time.minute == 0:
                     print(f"[SCHEDULER] 07:00 AM: Running Perplexity Global Market News...")
@@ -202,12 +208,31 @@ class Scheduler:
                         with open(f"daily_intelligence/global_news_{now.strftime('%Y-%m-%d')}.json", "w", encoding="utf-8") as f:
                             f.write(global_news_raw)
                         print("[SCHEDULER] Global Market News fetched and saved successfully.")
+                        
+                        # Post Slack Alert
+                        try:
+                            g_json = json.loads(global_news_raw)
+                            sent = g_json.get("overall_sentiment", "NEUTRAL")
+                            reason = g_json.get("sentiment_reason", "")
+                            sp500 = g_json.get("us_markets", {}).get("sp500", "N/A")
+                            nasdaq = g_json.get("us_markets", {}).get("nasdaq", "N/A")
+                            msg = (
+                                f"🌐 *Global Market News Fetched (07:00 AM)*\n"
+                                f"=========================================\n"
+                                f"🔮 *Overall Sentiment:* `{sent}`\n"
+                                f"📝 *Reason:* {reason}\n"
+                                f"🇺🇸 *S&P 500:* {sp500} | *Nasdaq:* {nasdaq}"
+                            )
+                            slack = ServiceRegistry.get("slack")
+                            slack.send_alert(msg)
+                        except Exception as e_alert:
+                            print(f"[SCHEDULER] Failed to send Global News Slack alert: {e_alert}")
                     except Exception as e:
                         print(f"[SCHEDULER] Global Market News failed: {e}")
                         
-                # 08:00 AM IST - Perplexity India Market News
-                elif current_time.hour == 8 and current_time.minute == 0:
-                    print(f"[SCHEDULER] 08:00 AM: Running Perplexity India Market News...")
+                # 08:20 AM IST - Perplexity India Market News
+                elif current_time.hour == 8 and current_time.minute == 20:
+                    print(f"[SCHEDULER] 08:20 AM: Running Perplexity India Market News...")
                     try:
                         perplexity = ServiceRegistry.get("perplexity")
                         india_news_raw = perplexity.fetch_india_news()
@@ -215,12 +240,31 @@ class Scheduler:
                         with open(f"daily_intelligence/india_news_{now.strftime('%Y-%m-%d')}.json", "w", encoding="utf-8") as f:
                             f.write(india_news_raw)
                         print("[SCHEDULER] India Market News fetched and saved successfully.")
+                        
+                        # Post Slack Alert
+                        try:
+                            i_json = json.loads(india_news_raw)
+                            gift_n = i_json.get("gift_nifty", "N/A")
+                            fii_act = i_json.get("fii_activity", {})
+                            fii_dir = fii_act.get("action", "N/A")
+                            fii_amt = fii_act.get("amount_crores", "N/A")
+                            msg = (
+                                f"🇮🇳 *India Market News Fetched (08:20 AM)*\n"
+                                f"=========================================\n"
+                                f"🎯 *GIFT Nifty:* {gift_n}\n"
+                                f"💼 *FII Activity:* {fii_dir} ({fii_amt} Cr)"
+                            )
+                            slack = ServiceRegistry.get("slack")
+                            slack.send_alert(msg)
+                        except Exception as e_alert:
+                            print(f"[SCHEDULER] Failed to send India News Slack alert: {e_alert}")
                     except Exception as e:
                         print(f"[SCHEDULER] India Market News failed: {e}")
                         
-                # 08:15 AM IST - Gemini GEIE News Impact Mapping
-                elif current_time.hour == 8 and current_time.minute == 15:
-                    print(f"[SCHEDULER] 08:15 AM: Running Gemini GEIE news impact analysis...")
+                # 08:50 AM IST - Gemini GEIE News Impact Mapping + Claude ARC Watchlist Batch Review
+                elif current_time.hour == 8 and current_time.minute == 50:
+                    print(f"[SCHEDULER] 08:50 AM: Running Gemini GEIE news impact analysis...")
+                    geie_payload = {}
                     try:
                         global_news = redis_client.get_val("perplexity:global_news")
                         if not global_news:
@@ -268,19 +312,18 @@ class Scheduler:
                         print("[SCHEDULER] Gemini GEIE analysis saved successfully.")
                     except Exception as e:
                         print(f"[SCHEDULER] Gemini GEIE run failed: {e}")
-                        
-                # 08:30 AM IST - Claude ARC Watchlist Batch Review
-                elif current_time.hour == 8 and current_time.minute == 30:
-                    print(f"[SCHEDULER] 08:30 AM: Running Claude ARC premarket watchlist review...")
+
+                    print(f"[SCHEDULER] 08:50 AM: Running Claude ARC premarket watchlist review...")
                     try:
                         geie_cached = redis_client.get_val("geie:daily_event")
-                        geie_payload = json.loads(geie_cached) if geie_cached else {}
+                        if geie_cached:
+                            geie_payload = json.loads(geie_cached)
                         symbols = self.live_loop.all_symbols
                         
                         context = {
                             "global_sentiment": "NEUTRAL",
                             "india_sentiment": "NEUTRAL",
-                            "geie_summary": geie_payload.get("market_sentiment", "NEUTRAL"),
+                            "geie_summary": geie_payload.get("market_sentiment", "NEUTRAL") if geie_payload else "NEUTRAL",
                             "sector_ranking": "1. METALS, 2. ENERGY, 3. IT",
                             "candidates_str": self._build_watchlist_candidates(symbols, geie_payload)
                         }
@@ -300,13 +343,35 @@ class Scheduler:
                         with open(f"daily_intelligence/arc_premarket_watchlist_{now.strftime('%Y-%m-%d')}.json", "w", encoding="utf-8") as f:
                             f.write(json.dumps(watchlist_review, indent=2))
                         
-                        # Send alerts
-                        brief = f"ARC Premarket Review Complete. Overall Market Call: {watchlist_review.get('overall_market_call', 'NEUTRAL')}"
+                        # Post detailed watchlists Slack Alert
+                        overall_call = watchlist_review.get('overall_market_call', 'NEUTRAL')
+                        mkt_context = watchlist_review.get('market_context', 'N/A')
+                        key_risks = ", ".join(watchlist_review.get('key_risks_today', [])) or "None"
+                        
+                        detailed_msg = (
+                            f"🤖 *ARC Premarket Watchlist Review (08:50 AM)*\n"
+                            f"=========================================\n"
+                            f"📈 *Overall Market Call:* `{overall_call}`\n"
+                            f"🌐 *Context:* {mkt_context}\n"
+                            f"⚠️ *Key Risks:* {key_risks}\n\n"
+                        )
+                        
+                        reviews = watchlist_review.get("watchlist_review", {})
+                        if reviews:
+                            detailed_msg += "*Stock-by-Stock Decisions:*\n"
+                            for sym, item in reviews.items():
+                                dec = item.get("decision", "APPROVE")
+                                reason = item.get("reason", "")
+                                emoji = "✅" if dec == "APPROVE" else "⚠️" if dec == "CAUTION" else "❌"
+                                detailed_msg += f"{emoji} *{sym}*: {dec} - _{reason}_\n"
+                                
+                        slack = ServiceRegistry.get("slack")
+                        slack.send_alert(detailed_msg)
+                        
+                        brief = f"ARC Premarket Review Complete. Overall Market Call: {overall_call}"
                         telegram = ServiceRegistry.get("telegram")
                         telegram.send_alert(brief)
-                        slack = ServiceRegistry.get("slack")
-                        slack.send_alert(brief)
-                        print("[SCHEDULER] Claude ARC premarket watchlist review saved successfully.")
+                        print("[SCHEDULER] Claude ARC premarket watchlist review saved and alerts sent successfully.")
                     except Exception as e:
                         print(f"[SCHEDULER] Claude ARC premarket review failed: {e}")
                         
@@ -340,6 +405,33 @@ class Scheduler:
                         with open(f"daily_intelligence/arc_postmarket_{now.strftime('%Y-%m-%d')}.json", "w", encoding="utf-8") as f:
                             f.write(json.dumps(result, indent=2))
                         print("[SCHEDULER] Claude ARC post-market EOD review saved successfully.")
+                        
+                        # Format and send EOD Slack alert
+                        session_quality = result.get("session_quality", "N/A")
+                        what_worked = result.get("what_worked", "N/A")
+                        what_failed = result.get("what_failed", "N/A")
+                        best_sig = result.get("best_signal", "N/A")
+                        worst_sig = result.get("worst_signal", "N/A")
+                        tomorrow_watch = ", ".join(result.get("tomorrow_watchlist", [])) or "None"
+                        tomorrow_avoid = ", ".join(result.get("tomorrow_avoid", [])) or "None"
+                        sys_sugg = result.get("system_suggestion", "N/A")
+                        assessment = result.get("overall_assessment", "N/A")
+                        
+                        detailed_eod = (
+                            f"📊 *ARC Postmarket EOD Review (04:00 PM)*\n"
+                            f"=========================================\n"
+                            f"🏆 *Session Quality:* `{session_quality}`\n"
+                            f"📈 *Overall Assessment:* {assessment}\n\n"
+                            f"✅ *What Worked:* {what_worked}\n\n"
+                            f"❌ *What Failed:* {what_failed}\n\n"
+                            f"💡 *Best Setup:* {best_sig}\n"
+                            f"⚠️ *Worst Setup:* {worst_sig}\n\n"
+                            f"🔍 *Watch Tomorrow:* {tomorrow_watch}\n"
+                            f"🚫 *Avoid Tomorrow:* {tomorrow_avoid}\n"
+                            f"🔧 *System Suggestion:* {sys_sugg}\n"
+                        )
+                        slack = ServiceRegistry.get("slack")
+                        slack.send_alert(detailed_eod)
                     except Exception as e:
                         print(f"[SCHEDULER] Failed to run post-market review: {e}")
  

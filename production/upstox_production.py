@@ -34,6 +34,35 @@ class UpstoxProduction(UpstoxInterface):
         self.subscribed_symbols = set()
         self.reconnect_delay = 1.0
         self.lock = threading.Lock()
+        
+        # State indicators for health checks and websocket managers
+        self.simulate_error = False
+        self.simulate_timeout = False
+        self.simulate_websocket_disconnect = False
+        self.simulate_data_gap = False
+        self.last_tick_time = datetime.datetime.now()
+        
+        # Load symbol to key mapping
+        self.symbol_to_key = {}
+        try:
+            mapping_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "symbol_to_key.json")
+            if os.path.exists(mapping_path):
+                with open(mapping_path, "r") as f:
+                    self.symbol_to_key = json.load(f)
+        except Exception as e:
+            print(f"[Upstox PROD] Failed to load symbol mapping: {e}", file=sys.stderr)
+
+    @property
+    def websocket_connected(self) -> bool:
+        return self.is_connected
+
+    @websocket_connected.setter
+    def websocket_connected(self, value: bool):
+        self.is_connected = value
+
+    def _resolve_symbol(self, symbol: str) -> str:
+        """Resolves a trading symbol to its Upstox instrument key, or returns the symbol as-is."""
+        return self.symbol_to_key.get(symbol, symbol)
 
     # ------------------------------------------------------------------
     # HTTP Helper with Rate Limiting and Exponential Backoff Retries
@@ -45,7 +74,8 @@ class UpstoxProduction(UpstoxInterface):
 
         headers = {
             "Accept": "application/json",
-            "Authorization": f"Bearer {self.access_token}"
+            "Authorization": f"Bearer {self.access_token}",
+            "User-Agent": "Mozilla/5.0"
         }
         
         req_data = json.dumps(data).encode("utf-8") if data else None
@@ -86,6 +116,7 @@ class UpstoxProduction(UpstoxInterface):
     def _on_message(self, ws, message):
         """Processes binary Protobuf/JSON stream ticks and writes to DB raw_ticks."""
         try:
+            self.last_tick_time = datetime.datetime.now()
             # V3 sends binary messages. If it is a string, parse it as JSON fallback
             if isinstance(message, str):
                 data = json.loads(message)
@@ -134,6 +165,7 @@ class UpstoxProduction(UpstoxInterface):
     def _on_open(self, ws):
         print("[Upstox PROD WS] WebSocket Handshake Successful. Connection Open.")
         self.is_connected = True
+        self.last_tick_time = datetime.datetime.now()
         self.consecutive_failures = 0
         self.reconnect_delay = 1.0
         # Re-subscribe to symbols
@@ -155,18 +187,19 @@ class UpstoxProduction(UpstoxInterface):
         if not self.ws or not self.is_connected:
             return
         
+        resolved_symbols = [self._resolve_symbol(s) for s in symbols]
         # Upstox V3 WebSocket subscription payload
         payload = {
             "guid": f"sub_{int(time.time())}",
             "method": "sub",
             "data": {
                 "mode": "full", # 'full' for depth/quotes, 'ltp' for price-only
-                "instrumentKeys": symbols
+                "instrumentKeys": resolved_symbols
             }
         }
         try:
             self.ws.send(json.dumps(payload), opcode=websocket.ABNF.OPCODE_TEXT)
-            print(f"[Upstox PROD WS] Subscribed to symbols: {symbols}")
+            print(f"[Upstox PROD WS] Subscribed to symbols: {resolved_symbols}")
         except Exception as e:
             print(f"[Upstox PROD WS] Subscription failed: {e}", file=sys.stderr)
 
@@ -179,6 +212,10 @@ class UpstoxProduction(UpstoxInterface):
         with self.lock:
             if self.is_connected:
                 return
+            
+            # Auto-populate subscription list if empty
+            if not self.subscribed_symbols and self.symbol_to_key:
+                self.subscribed_symbols = set(self.symbol_to_key.values())
             
             # Step 1: Get authorized WebSocket redirect URI
             print("[Upstox PROD WS] Authorizing connection...")
@@ -221,25 +258,51 @@ class UpstoxProduction(UpstoxInterface):
             query = "SELECT price, volume, time FROM raw_ticks WHERE symbol = %s ORDER BY time DESC LIMIT 1;"
             res = database.execute_query(query, (symbol,), fetch=True)
             if res:
-                return {"symbol": symbol, "price": float(res[0][0]), "volume": int(res[0][1]), "time": res[0][2]}
+                t = res[0][2]
+                if hasattr(t, "tzinfo") and t.tzinfo is not None:
+                    t = t.replace(tzinfo=None)
+                self.last_tick_time = t
+                return {"symbol": symbol, "price": float(res[0][0]), "volume": int(res[0][1]), "time": t}
         
         # REST Quote API Fallback
-        res = self._request("GET", f"/v2/market-quote/quotes", params={"symbol": symbol})
-        data = res.get("data", {}).get(symbol, {})
-        return {
+        resolved_symbol = self._resolve_symbol(symbol)
+        res = self._request("GET", f"/v2/market-quote/quotes", params={"symbol": resolved_symbol})
+        quotes_dict = res.get("data", {})
+        data = list(quotes_dict.values())[0] if quotes_dict else {}
+        ret_val = {
             "symbol": symbol,
             "price": float(data.get("last_price", 0.0)),
             "volume": int(data.get("volume", 0)),
             "time": datetime.datetime.now()
         }
+        self.last_tick_time = ret_val["time"]
+        return ret_val
 
     def get_option_chain(self, symbol: str, expiry_date: Optional[str] = None) -> List[Dict[str, Any]]:
         """Downloads full Option Chain for the underlying symbol and writes to database."""
-        params = {"instrument_key": symbol}
-        if expiry_date:
-            params["expiry_date"] = expiry_date
+        resolved_symbol = self._resolve_symbol(symbol)
+        target_expiry = expiry_date
+        if not target_expiry:
+            try:
+                print(f"[Upstox PROD] Fetching contracts to determine nearest expiry for {symbol}...")
+                contracts_res = self._request("GET", "/v2/option/contract", params={"instrument_key": resolved_symbol})
+                contracts = contracts_res.get("data", [])
+                expiries = sorted(list(set(c.get("expiry") for c in contracts if c.get("expiry"))))
+                if expiries:
+                    target_expiry = expiries[0]
+                    print(f"[Upstox PROD] Resolved nearest expiry date: {target_expiry}")
+            except Exception as e:
+                print(f"[Upstox PROD] Failed to resolve nearest expiry: {e}", file=sys.stderr)
+
+        if not target_expiry:
+            raise ValueError(f"Could not determine expiry_date for option chain of {symbol}")
+
+        params = {
+            "instrument_key": resolved_symbol,
+            "expiry_date": target_expiry
+        }
             
-        print(f"[Upstox PROD] Downloading Option Chain for {symbol} (expiry: {expiry_date or 'nearest'})...")
+        print(f"[Upstox PROD] Downloading Option Chain for {symbol} (expiry: {target_expiry})...")
         res = self._request("GET", "/v2/option/chain", params=params)
         chain_list = res.get("data", [])
         
@@ -292,15 +355,20 @@ class UpstoxProduction(UpstoxInterface):
 
     def get_historical_candles(self, symbol: str, timeframe: str, lookback_days: int) -> List[List[Any]]:
         """Queries historical candle data and saves to database market_data table."""
-        # Convert internal timeframe names to Upstox intervals
-        # 15m -> 15minute, Daily -> day
-        interval_map = {"1m": "1minute", "15m": "15minute", "Daily": "day"}
-        interval = interval_map.get(timeframe, "15minute")
+        # Convert internal timeframe names to Upstox V3 intervals
+        # 1m -> minutes/1, 15m -> minutes/15, Daily -> days/1
+        resolved_symbol = self._resolve_symbol(symbol)
+        timeframe_config = {
+            "1m": ("minutes", "1"),
+            "15m": ("minutes", "15"),
+            "Daily": ("days", "1")
+        }
+        unit, interval = timeframe_config.get(timeframe, ("minutes", "15"))
         
         to_date = datetime.datetime.now().strftime("%Y-%m-%d")
         from_date = (datetime.datetime.now() - datetime.timedelta(days=lookback_days)).strftime("%Y-%m-%d")
         
-        path = f"/v3/historical-candle/{symbol}/{interval}/{to_date}/{from_date}"
+        path = f"/v3/historical-candle/{resolved_symbol}/{unit}/{interval}/{to_date}/{from_date}"
         print(f"[Upstox PROD] Downloading historical candles for {symbol} ({timeframe}) from {from_date} to {to_date}...")
         
         res = self._request("GET", path)

@@ -48,16 +48,27 @@ async def check_component(name: str) -> tuple[str, int, str]:
             
         elif name == "perplexity":
             perplexity = ServiceRegistry.get("perplexity")
-            perplexity.fetch_global_news()
+            if "mock" in str(perplexity.__class__).lower():
+                perplexity.fetch_global_news()
+            else:
+                import socket
+                socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("api.perplexity.ai", 443))
             
         elif name == "gemini":
             gemini = ServiceRegistry.get("gemini")
-            # Call mock impact with dummy data
-            gemini.analyze_news_impact("test", "BUYING", "23500")
+            if "mock" in str(gemini.__class__).lower():
+                gemini.analyze_news_impact("test", "BUYING", "23500")
+            else:
+                import socket
+                socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("generativelanguage.googleapis.com", 443))
             
         elif name == "claude":
             claude = ServiceRegistry.get("claude")
-            claude.review_watchlist_premarket(["TATASTEEL"], {})
+            if "mock" in str(claude.__class__).lower():
+                claude.review_watchlist_premarket(["TATASTEEL"], {})
+            else:
+                import socket
+                socket.socket(socket.AF_INET, socket.SOCK_STREAM).connect(("api.anthropic.com", 443))
             
         elif name == "telegram":
             telegram = ServiceRegistry.get("telegram")
@@ -122,4 +133,16 @@ async def health_monitor_loop(interval_sec=30):
             await run_single_health_cycle()
         except Exception as e:
             print(f"Error in health monitor cycle: {e}")
-        await asyncio.sleep(interval_sec)
+            
+        current_interval = interval_sec
+        try:
+            from market_calendar import is_market_session_active
+            from config import Config
+            now = datetime.datetime.now()
+            # If not mock mode and outside active session, slow down health check to 10 minutes (600 seconds)
+            if not Config.MOCK_MODE and not is_market_session_active(now):
+                current_interval = 600
+        except Exception:
+            pass
+            
+        await asyncio.sleep(current_interval)

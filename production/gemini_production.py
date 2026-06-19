@@ -58,7 +58,15 @@ class GeminiProduction(GeminiInterface):
             try:
                 with urllib.request.urlopen(req, timeout=self.TIMEOUT) as response:
                     result = json.loads(response.read().decode("utf-8"))
-                    return result["candidates"][0]["content"]["parts"][0]["text"]
+                    text = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    if text.startswith("```"):
+                        lines = text.split("\n")
+                        if lines[0].startswith("```"):
+                            lines = lines[1:]
+                        if lines[-1].startswith("```"):
+                            lines = lines[:-1]
+                        text = "\n".join(lines).strip()
+                    return text
             except urllib.error.HTTPError as e:
                 if e.code == 429 or e.code >= 500:
                     sleep_time = (2 ** attempt) + 1
@@ -245,7 +253,7 @@ Return ONLY this JSON. No explanation. No text.
             "required": ["geie_id", "timestamp", "market_sentiment", "events_analyzed", "stock_impacts", "top_beneficiaries", "top_losers", "sectors_strong", "sectors_weak", "geie_status"]
         }
         
-        res = self._call_api(prompt, system_context="You are the IIIS GEIE Intelligence Engine.", response_schema=schema)
+        res = self._call_api(prompt, system_context="You are the IIIS GEIE Intelligence Engine.", response_schema=None)
         return json.loads(res)
 
     def analyze_live_signal(self, signal_data: Dict[str, Any], tech_data: Dict[str, Any], current_market: Dict[str, Any], morning_geie: Dict[str, Any], breaking_news: str) -> Dict[str, Any]:
@@ -319,7 +327,7 @@ Return ONLY this JSON. No text. No explanation.
             },
             "required": ["geie_live_id", "symbol", "recommendation", "confidence_boost", "key_observation", "risk_flag", "geie_still_valid"]
         }
-        res = self._call_api(prompt, system_context="You are the GEIE Live Signal Analyzer.", response_schema=schema)
+        res = self._call_api(prompt, system_context="You are the GEIE Live Signal Analyzer.", response_schema=None)
         return json.loads(res)
 
 

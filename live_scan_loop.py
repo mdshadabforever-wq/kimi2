@@ -9,7 +9,9 @@ from interfaces.base import ServiceRegistry
 from audit import log_audit
 from market_data.instrument_loader import InstrumentLoader
 from market_data.tick_processor import TickProcessor
-from market_data.candle_builder import CandleBuilder, is_market_session_active
+from market_data.candle_builder import CandleBuilder
+from market_calendar import is_market_session_active, get_seconds_until_next_market_open
+from config import Config
 from orchestrator import Orchestrator
 
 class LiveScanLoop:
@@ -60,9 +62,15 @@ class LiveScanLoop:
             timestamp = datetime.datetime.now()
             
             # Enforce market session awareness (NSE: 09:15 to 15:30 IST)
-            # In MOCK_MODE, we print a warning if outside market hours, but let it proceed for demo purposes
             if not is_market_session_active(timestamp):
-                print(f"[LIVE LOOP] Warning: Current time {timestamp.strftime('%H:%M:%S')} is outside normal market hours. Proceeding in MOCK mode.")
+                if not Config.MOCK_MODE:
+                    seconds_to_sleep = get_seconds_until_next_market_open(timestamp)
+                    hours = seconds_to_sleep / 3600
+                    print(f"[LIVE LOOP] Outside market hours. Sleeping for {seconds_to_sleep:.1f}s ({hours:.2f} hours) until next market open...")
+                    await asyncio.sleep(seconds_to_sleep)
+                    continue
+                else:
+                    print(f"[LIVE LOOP] Warning: Current time {timestamp.strftime('%H:%M:%S')} is outside normal market hours. Proceeding in MOCK mode.")
 
             print(f"\n[LIVE LOOP] Starting 60-second market scan cycle at {timestamp.strftime('%Y-%m-%d %H:%M:%S')}...")
             
